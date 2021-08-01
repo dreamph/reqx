@@ -6,7 +6,7 @@ import (
 )
 
 type Response struct {
-	body []byte
+	body       *[]byte
 	StatusCode int
 }
 
@@ -15,13 +15,13 @@ func (r *Response) IsSuccessful() bool {
 }
 
 func (r *Response) ToJSON(result interface{}) error {
-	return json.Unmarshal(r.body, result)
+	return json.Unmarshal(*r.body, result)
 }
 
 func (r *Response) ToString() string {
-	return string(r.body)
+	return string(*r.body)
 }
 
 func (r *Response) ToXML(result interface{}) error {
-	return xml.Unmarshal(r.body, result)
+	return xml.Unmarshal(*r.body, result)
 }

@@ -133,7 +133,7 @@ func (r *Reqx) Do(method string, req *Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	response.body = respBody
+	response.body = &respBody
 	return response, nil
 }
 
