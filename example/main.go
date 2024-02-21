@@ -1,91 +1,143 @@
 package main
 
-import "reqx"
+import (
+	"bytes"
+	"github.com/dreamph/reqx"
+
+	"log"
+	"os"
+	"time"
+)
 
 type Data struct {
 	Name string `json:"name,omitempty"`
 }
 
 type Response struct {
-	Status string `json:"status"`
+	Origin string `json:"origin"`
 }
 
 func main() {
-	client := reqx.New()
+	client := reqx.New(&reqx.Options{
+		Timeout: time.Second * 10,
+		Headers: reqx.Headers{
+			reqx.HeaderAuthorization: "Bearer 123456",
+		},
+		//InsecureSkipVerify: true,
+	})
 
 	//POST
-	resx, err := client.Post(&reqx.Request{
-		URL: "http://localhost:8080/products",
-		Body: reqx.JSON(&Data{
+	result := &Response{}
+	resp, err := client.Post(&reqx.Request{
+		URL: "https://httpbin.org/post",
+		Data: &Data{
 			Name: "Reqx",
-		}),
+		},
+		Headers: reqx.Headers{
+			"custom": "1",
+		},
+		Result: result,
 	})
 	if err != nil {
-		panic(err)
+		log.Fatalf(err.Error())
 	}
-	println(resx.StatusCode)
+	println(resp.StatusCode)
+	println(result.Origin)
 
-	result := &Response{}
-	err = resx.ToJSON(result)
+	//POST and get raw body
+	var resultBytes []byte
+	resp, err = client.Post(&reqx.Request{
+		URL: "https://httpbin.org/post",
+		Data: &Data{
+			Name: "Reqx",
+		},
+		Result: &resultBytes,
+	})
 	if err != nil {
-		panic(err)
+		log.Fatalf(err.Error())
 	}
-	println(result.Status)
+	println(resp.StatusCode)
+	println(string(resultBytes))
+
+	//UPLOAD FILES
+	test1Bytes, err := os.ReadFile("example/demo.txt")
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	test2Bytes, err := os.ReadFile("example/demo.txt")
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	var resultUploadBytes []byte
+	resp, err = client.Post(&reqx.Request{
+		URL: "https://httpbin.org/post",
+		Data: &reqx.Form{
+			FormData: reqx.FormData{
+				"firstName": "reqx",
+			},
+			Files: reqx.WithFileParams(
+				reqx.FileParam{
+					Name:     "file1",
+					FileName: "test1.pdf",
+					Reader:   bytes.NewReader(test1Bytes),
+				},
+				reqx.FileParam{
+					Name:     "file2",
+					FileName: "test2.pdf",
+					Reader:   bytes.NewReader(test2Bytes),
+				},
+			),
+		},
+		Result: &resultUploadBytes,
+	})
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	println(resp.StatusCode)
+	println(string(resultUploadBytes))
 
 	//GET
-	resx, err = client.Get(&reqx.Request{
-		URL: "http://localhost:8080/products",
+	result = &Response{}
+	resp, err = client.Get(&reqx.Request{
+		URL:    "https://httpbin.org/get",
+		Result: result,
 	})
 	if err != nil {
-		panic(err)
+		log.Fatalf(err.Error())
 	}
-	println(resx.StatusCode)
-
-	result = &Response{}
-	err = resx.ToJSON(result)
-	if err != nil {
-		panic(err)
-	}
-	println(result.Status)
+	println(resp.StatusCode)
+	println(result.Origin)
 
 	//DELETE
-	resx, err = client.Delete(&reqx.Request{
-		URL: "http://localhost:8080/products",
-		Body: reqx.JSON(&Data{
+	result = &Response{}
+	resp, err = client.Delete(&reqx.Request{
+		URL: "https://httpbin.org/delete",
+		Data: &Data{
 			Name: "Reqx",
-		}),
+		},
+		Result: result,
 	})
 	if err != nil {
-		panic(err)
+		log.Fatalf(err.Error())
 	}
-	println(resx.StatusCode)
-
-	result = &Response{}
-	err = resx.ToJSON(result)
-	if err != nil {
-		panic(err)
-	}
-	println(result.Status)
+	println(resp.StatusCode)
+	println(result.Origin)
 
 	//PUT
-	resx, err = client.Put(&reqx.Request{
-		URL: "http://localhost:8080/products",
-		Body: reqx.JSON(&Data{
+	result = &Response{}
+	resp, err = client.Put(&reqx.Request{
+		URL: "https://httpbin.org/put",
+		Data: &Data{
 			Name: "Reqx",
-		}),
-		Headers: map[string]string{
+		},
+		Headers: reqx.Headers{
 			"api-key": "123456",
 		},
+		Result: result,
 	})
 	if err != nil {
-		panic(err)
+		log.Fatalf(err.Error())
 	}
-	println(resx.StatusCode)
-
-	result = &Response{}
-	err = resx.ToJSON(result)
-	if err != nil {
-		panic(err)
-	}
-	println(result.Status)
+	println(resp.StatusCode)
+	println(result.Origin)
 }

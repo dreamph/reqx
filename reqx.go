@@ -2,143 +2,339 @@ package reqx
 
 import (
 	"bytes"
-	"encoding/json"
-	"errors"
+	"crypto/tls"
+	gojson "github.com/goccy/go-json"
+	"github.com/valyala/fasthttp"
 	"io"
-	"net/http"
-	"net/url"
+	"mime/multipart"
+	"reflect"
 	"time"
 )
 
-type Reqx struct {
-	client *http.Client
+const (
+	HeaderAuthorization = "Authorization"
+	ContentType         = "Content-Type"
+)
+
+var (
+	headerContentTypeJson = []byte("application/json")
+)
+
+const (
+	defaultUserAgent = "reqx-http-client"
+)
+
+type Request struct {
+	URL         string
+	Data        interface{}
+	Headers     Headers
+	Result      interface{}
+	ErrorResult interface{}
+}
+
+type Response struct {
+	StatusCode int
+}
+
+type FileParam struct {
+	Name     string
+	FileName string
+	Reader   io.Reader
+}
+
+type Form struct {
+	FormData FormData
+	Files    *[]FileParam
 }
 
 type Options struct {
-	Timeout time.Duration
+	Timeout            time.Duration
+	UserAgent          string
+	InsecureSkipVerify bool
+	Headers            map[string]string
+	JsonMarshal        func(v interface{}) ([]byte, error)
+	JsonUnmarshal      func(data []byte, v interface{}) error
 }
 
-type Request struct {
-	URL     string
-	Body    interface{}
-	Headers map[string]string
+type FormData map[string]string
+
+func WithFileParams(files ...FileParam) *[]FileParam {
+	return &files
 }
 
-func New(options ...*Options) *Reqx {
-	var client = &http.Client{
-		Timeout: time.Second * 60,
+type Headers map[string]string
+
+type Client interface {
+	Get(request *Request) (*Response, error)
+	Post(request *Request) (*Response, error)
+	Put(request *Request) (*Response, error)
+	Delete(request *Request) (*Response, error)
+	Patch(request *Request) (*Response, error)
+}
+
+type httpClient struct {
+	client        *fasthttp.Client
+	userAgent     string
+	Headers       Headers
+	jsonMarshal   func(v interface{}) ([]byte, error)
+	jsonUnmarshal func(data []byte, v interface{}) error
+}
+
+func New(opts ...*Options) Client {
+	opt := &Options{
+		Timeout:       time.Second * 30,
+		UserAgent:     defaultUserAgent,
+		JsonMarshal:   gojson.Marshal,
+		JsonUnmarshal: gojson.Unmarshal,
 	}
-	if len(options) != 0 {
-		ops := options[0]
-		client.Timeout = ops.Timeout
-	}
-	return &Reqx{
-		client: client,
-	}
-}
-
-func NewClient(client *http.Client) *Reqx {
-	return &Reqx{
-		client: client,
-	}
-}
-
-func (r *Reqx) Post(req *Request) (*Response, error) {
-	return r.Do("POST", req)
-}
-
-func (r *Reqx) Put(req *Request) (*Response, error) {
-	return r.Do("PUT", req)
-}
-
-func (r *Reqx) Delete(req *Request) (*Response, error) {
-	return r.Do("DELETE", req)
-}
-
-func (r *Reqx) Options(req *Request) (*Response, error) {
-	return r.Do("OPTIONS", req)
-}
-
-func (r *Reqx) Head(req *Request) (*Response, error) {
-	return r.Do("HEAD", req)
-}
-
-func (r *Reqx) Get(req *Request) (*Response, error) {
-	return r.Do("GET", req)
-}
-
-func (r *Reqx) Patch(req *Request) (*Response, error) {
-	return r.Do("PATCH", req)
-}
-
-func (r *Reqx) Do(method string, req *Request) (*Response, error) {
-	endpoint, _ := url.Parse(req.URL)
-	httpReq := &http.Request{
-		URL:    endpoint,
-		Method: method,
-		Header: make(http.Header),
-	}
-
-	if req.Headers != nil {
-		for key, value := range req.Headers {
-			httpReq.Header.Add(key, value)
+	if len(opts) != 0 {
+		userOpt := opts[0]
+		if userOpt.Timeout.Milliseconds() != 0 {
+			opt.Timeout = userOpt.Timeout
+		}
+		if userOpt.Headers != nil {
+			opt.Headers = userOpt.Headers
+		}
+		if userOpt.UserAgent != "" {
+			opt.UserAgent = userOpt.UserAgent
+		}
+		if userOpt.JsonMarshal != nil {
+			opt.JsonMarshal = userOpt.JsonMarshal
+		}
+		if userOpt.JsonUnmarshal != nil {
+			opt.JsonUnmarshal = userOpt.JsonUnmarshal
+		}
+		if userOpt.InsecureSkipVerify {
+			opt.InsecureSkipVerify = userOpt.InsecureSkipVerify
 		}
 	}
 
-	if req.Body != nil {
-		var data []byte
-		var err error
-		var ok bool
-		switch vv := req.Body.(type) {
-		case reqJsonBody:
-			setContentType(httpReq, vv.ContentType)
-			data, err = json.Marshal(vv.Body)
-			if err != nil {
-				return nil, err
-			}
-		case reqXmlBody:
-			setContentType(httpReq, vv.ContentType)
-			data, err = json.Marshal(vv.Body)
-			if err != nil {
-				return nil, err
-			}
-		case reqRawBody:
-			setContentType(httpReq, vv.ContentType)
-			data, ok = vv.Body.([]byte)
-			if !ok {
-				return nil, errors.New("reqRawBody")
-			}
-		case reqFormBody:
-			setContentType(httpReq, vv.ContentType)
-			body, ok := vv.Body.(url.Values)
-			if !ok {
-				return nil, errors.New("reqFormBody")
-			}
-			data = []byte(body.Encode())
-		}
-
-		httpReq.Body = io.NopCloser(bytes.NewReader(data))
-		httpReq.ContentLength = int64(len(data))
+	tcpDialer := fasthttp.TCPDialer{
+		Concurrency:      4096,
+		DNSCacheDuration: time.Hour,
 	}
-	resp, err := r.client.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	response := &Response{
-		StatusCode: resp.StatusCode,
+	maxIdleConnDuration := time.Hour * 1
+	fastHttpClient := &fasthttp.Client{
+		Name:                          opt.UserAgent,
+		ReadTimeout:                   opt.Timeout,
+		WriteTimeout:                  opt.Timeout,
+		MaxIdleConnDuration:           maxIdleConnDuration,
+		NoDefaultUserAgentHeader:      true, // Don't send: User-Agent: fasthttp
+		DisableHeaderNamesNormalizing: true, // If you set the case on your headers correctly you can enable this
+		DisablePathNormalizing:        true,
+		Dial:                          tcpDialer.Dial,
 	}
 
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	if opt.InsecureSkipVerify {
+		fastHttpClient.TLSConfig = &tls.Config{InsecureSkipVerify: true}
 	}
-	response.body = &respBody
-	return response, nil
+
+	c := &httpClient{
+		client:        fastHttpClient,
+		userAgent:     opt.UserAgent,
+		Headers:       opt.Headers,
+		jsonMarshal:   opt.JsonMarshal,
+		jsonUnmarshal: opt.JsonUnmarshal,
+	}
+
+	return c
 }
 
-func setContentType(req *http.Request, contentType string) {
-	if req.Header.Get("Content-Type") == "" {
-		req.Header.Set("Content-Type", contentType)
+func (c *httpClient) Get(request *Request) (*Response, error) {
+	return c.do(request, fasthttp.MethodGet)
+}
+
+func (c *httpClient) Post(request *Request) (*Response, error) {
+	return c.do(request, fasthttp.MethodPost)
+}
+
+func (c *httpClient) Put(request *Request) (*Response, error) {
+	return c.do(request, fasthttp.MethodPut)
+}
+
+func (c *httpClient) Delete(request *Request) (*Response, error) {
+	return c.do(request, fasthttp.MethodDelete)
+}
+
+func (c *httpClient) Patch(request *Request) (*Response, error) {
+	return c.do(request, fasthttp.MethodPatch)
+}
+
+func (c *httpClient) do(request *Request, method string) (*Response, error) {
+	req := fasthttp.AcquireRequest()
+	resp := fasthttp.AcquireResponse()
+
+	defer func() {
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
+	}()
+
+	err := c.initRequest(req, resp, request, method)
+	if err != nil {
+		return nil, err
+	}
+
+	err = c.client.Do(req, resp)
+	if err != nil {
+		return &Response{
+			StatusCode: resp.StatusCode(),
+		}, err
+	}
+
+	err = c.initResponse(request, req, resp)
+	if err != nil {
+		return nil, err
+	}
+	return &Response{
+		StatusCode: resp.StatusCode(),
+	}, nil
+}
+
+func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, request *Request, method string) error {
+	req.SetRequestURI(request.URL)
+	req.Header.SetMethod(method)
+
+	if c.Headers != nil {
+		for k, v := range c.Headers {
+			req.Header.Add(k, v)
+		}
+	}
+
+	if request.Headers != nil {
+		for k, v := range request.Headers {
+			req.Header.Add(k, v)
+		}
+	}
+
+	if request.Data != nil {
+		form, ok := c.getFormBody(request.Data)
+		if ok && (form.FormData != nil || form.Files != nil) {
+			bodyBuffer := &bytes.Buffer{}
+			bodyWriter := multipart.NewWriter(bodyBuffer)
+			defer func() {
+				_ = bodyWriter.Close()
+			}()
+
+			if form.FormData != nil {
+				err := writeFieldsData(bodyWriter, form.FormData)
+				if err != nil {
+					return err
+				}
+			}
+
+			if form.Files != nil {
+				err := writeFilesData(bodyWriter, form.Files)
+				if err != nil {
+					return err
+				}
+			}
+
+			contentType := bodyWriter.FormDataContentType()
+			req.Header.SetContentType(contentType)
+			req.SetBody(bodyBuffer.Bytes())
+		} else {
+			req.Header.SetContentTypeBytes(headerContentTypeJson)
+			dataBytes, err := c.jsonMarshal(request.Data)
+			if err != nil {
+				return err
+			}
+			req.SetBodyRaw(dataBytes)
+		}
+	}
+
+	return nil
+}
+
+func (c *httpClient) initResponse(request *Request, _ *fasthttp.Request, resp *fasthttp.Response) error {
+	if !c.isSuccess(resp.StatusCode()) {
+		if request.ErrorResult != nil {
+			err := c.initResult(request.ErrorResult, resp)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if request.Result != nil {
+		err := c.initResult(request.Result, resp)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *httpClient) initResult(result interface{}, resp *fasthttp.Response) error {
+	switch result.(type) {
+	case *string:
+		setPointerValue(result, resp.Body())
+	case *[]byte:
+		setPointerValue(result, resp.Body())
+	case string:
+	case []byte:
+	default:
+		body := resp.Body()
+		if body != nil {
+			err := c.jsonUnmarshal(body, result)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (c *httpClient) isSuccess(statusCode int) bool {
+	return statusCode >= 200 && statusCode <= 299
+}
+
+func (c *httpClient) getFormBody(data interface{}) (*Form, bool) {
+	form, ok := data.(Form)
+	if ok {
+		return &form, true
+	}
+
+	formPtr, ok := data.(*Form)
+	if ok {
+		return formPtr, true
+	}
+
+	return nil, false
+}
+
+func writeFieldsData(bodyWriter *multipart.Writer, fields map[string]string) error {
+	for k, v := range fields {
+		fieldWriter, err := bodyWriter.CreateFormField(k)
+		if err != nil {
+			return err
+		}
+		_, err = fieldWriter.Write([]byte(v))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeFilesData(bodyWriter *multipart.Writer, files *[]FileParam) error {
+	for _, val := range *files {
+		fileWriter, err := bodyWriter.CreateFormFile(val.Name, val.FileName)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(fileWriter, val.Reader)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func setPointerValue(ref interface{}, data interface{}) {
+	val := reflect.ValueOf(ref)
+	if val.Kind() == reflect.Ptr {
+		val.Elem().Set(reflect.ValueOf(data))
 	}
 }
