@@ -30,6 +30,7 @@ type Request struct {
 	Headers     Headers
 	Result      interface{}
 	ErrorResult interface{}
+	Timeout     time.Duration
 }
 
 type Response struct {
@@ -51,6 +52,7 @@ type Options struct {
 	Timeout            time.Duration
 	UserAgent          string
 	InsecureSkipVerify bool
+	MaxConnsPerHost    int
 	Headers            map[string]string
 	JsonMarshal        func(v interface{}) ([]byte, error)
 	JsonUnmarshal      func(data []byte, v interface{}) error
@@ -86,6 +88,7 @@ func New(opts ...*Options) Client {
 		UserAgent:     defaultUserAgent,
 		JsonMarshal:   gojson.Marshal,
 		JsonUnmarshal: gojson.Unmarshal,
+		//MaxConnsPerHost: fasthttp.DefaultMaxConnsPerHost,
 	}
 	if len(opts) != 0 {
 		userOpt := opts[0]
@@ -107,6 +110,9 @@ func New(opts ...*Options) Client {
 		if userOpt.InsecureSkipVerify {
 			opt.InsecureSkipVerify = userOpt.InsecureSkipVerify
 		}
+		if userOpt.MaxConnsPerHost != 0 {
+			opt.MaxConnsPerHost = userOpt.MaxConnsPerHost
+		}
 	}
 
 	tcpDialer := fasthttp.TCPDialer{
@@ -123,6 +129,7 @@ func New(opts ...*Options) Client {
 		DisableHeaderNamesNormalizing: true, // If you set the case on your headers correctly you can enable this
 		DisablePathNormalizing:        true,
 		Dial:                          tcpDialer.Dial,
+		MaxConnsPerHost:               opt.MaxConnsPerHost,
 	}
 
 	if opt.InsecureSkipVerify {
@@ -240,6 +247,10 @@ func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, re
 			}
 			req.SetBodyRaw(dataBytes)
 		}
+	}
+
+	if request.Timeout > 0 {
+		req.SetTimeout(request.Timeout)
 	}
 
 	return nil
