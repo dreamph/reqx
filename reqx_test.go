@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/dreamph/reqx"
 	"github.com/goccy/go-json"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -59,11 +60,16 @@ func Test_Get(t *testing.T) {
 }
 
 func ToJsonString(obj interface{}) string {
+	return string(ToJsonBytes(obj))
+}
+
+func ToJsonBytes(obj interface{}) []byte {
 	data, err := json.Marshal(obj)
 	if err != nil {
-		return ""
+		var r []byte
+		return r
 	}
-	return string(data)
+	return data
 }
 
 func Test_PostBody(t *testing.T) {
@@ -301,7 +307,7 @@ func Test_Delete(t *testing.T) {
 
 func Benchmark_ReqxRequests(b *testing.B) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprintln(w, "Hello, World")
+		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx"}))
 	}))
 	defer ts.Close()
 
@@ -372,6 +378,115 @@ func Benchmark_ReqxRequests(b *testing.B) {
 				},
 				Result: result,
 			})
+		}
+	})
+}
+
+func Benchmark_GoHttpRequests(b *testing.B) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx"}))
+	}))
+	defer ts.Close()
+
+	client := &http.Client{
+		Timeout: time.Second * 10,
+	}
+
+	b.Run("GET", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			_, _ = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+
+		}
+	})
+
+	b.Run("POST", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			req, err := http.NewRequest(http.MethodPost, ts.URL, bytes.NewReader(ToJsonBytes(Data{
+				Name: "Reqx",
+			})))
+			if err != nil {
+				log.Fatalln(err)
+			}
+			req.Header.Add("Content-Type", "application/json")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			_, _ = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+		}
+	})
+
+	b.Run("PUT", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			req, err := http.NewRequest(http.MethodPut, ts.URL, bytes.NewReader(ToJsonBytes(Data{
+				Name: "Reqx",
+			})))
+			if err != nil {
+				log.Fatalln(err)
+			}
+			req.Header.Add("Content-Type", "application/json")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			_, _ = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+		}
+	})
+
+	b.Run("PATCH", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			req, err := http.NewRequest(http.MethodPatch, ts.URL, bytes.NewReader(ToJsonBytes(Data{
+				Name: "Reqx",
+			})))
+			if err != nil {
+				log.Fatalln(err)
+			}
+			req.Header.Add("Content-Type", "application/json")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			_, _ = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+		}
+	})
+
+	b.Run("DELETE", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			req, err := http.NewRequest(http.MethodDelete, ts.URL, bytes.NewReader(ToJsonBytes(Data{
+				Name: "Reqx",
+			})))
+			if err != nil {
+				log.Fatalln(err)
+			}
+			req.Header.Add("Content-Type", "application/json")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			_, _ = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
 		}
 	})
 }
