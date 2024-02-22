@@ -95,6 +95,22 @@ func main() {
 	println(resp.StatusCode)
 	println(string(resultBytes))
 
+	//POST with request timeout
+	var resultBytes2 []byte
+	resp, err = client.Post(&reqx.Request{
+		URL: "https://httpbin.org/post",
+		Data: &Data{
+			Name: "Reqx",
+		},
+		Result:  &resultBytes2,
+		Timeout: time.Second * 5,
+	})
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	println(resp.StatusCode)
+	println(string(resultBytes2))
+
 	//UPLOAD FILES
 	test1Bytes, err := os.ReadFile("example/demo.txt")
 	if err != nil {
@@ -177,6 +193,4 @@ func main() {
 	println(resp.StatusCode)
 	println(result.Origin)
 }
-
-
 ```
