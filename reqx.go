@@ -48,14 +48,58 @@ type Form struct {
 	Files    *[]FileParam
 }
 
-type Options struct {
-	Timeout            time.Duration
-	UserAgent          string
-	InsecureSkipVerify bool
-	MaxConnsPerHost    int
-	Headers            map[string]string
-	JsonMarshal        func(v interface{}) ([]byte, error)
-	JsonUnmarshal      func(data []byte, v interface{}) error
+type clientOptions struct {
+	timeout         time.Duration
+	userAgent       string
+	tlsConfig       *tls.Config
+	maxConnsPerHost int
+	headers         Headers
+	jsonMarshal     func(v interface{}) ([]byte, error)
+	jsonUnmarshal   func(data []byte, v interface{}) error
+}
+
+type ClientOptions func(opts *clientOptions)
+
+func WithTimeout(timeout time.Duration) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.timeout = timeout
+	}
+}
+
+func WithUserAgent(userAgent string) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.userAgent = userAgent
+	}
+}
+
+func WithTLSConfig(tlsConfig *tls.Config) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.tlsConfig = tlsConfig
+	}
+}
+
+func WithMaxConnsPerHost(maxConnsPerHost int) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.maxConnsPerHost = maxConnsPerHost
+	}
+}
+
+func WithHeaders(headers Headers) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.headers = headers
+	}
+}
+
+func WithJsonMarshal(jsonMarshal func(v interface{}) ([]byte, error)) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.jsonMarshal = jsonMarshal
+	}
+}
+
+func WithJsonUnmarshal(jsonUnmarshal func(data []byte, v interface{}) error) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.jsonUnmarshal = jsonUnmarshal
+	}
 }
 
 type FormData map[string]string
@@ -82,36 +126,16 @@ type httpClient struct {
 	jsonUnmarshal func(data []byte, v interface{}) error
 }
 
-func New(opts ...*Options) Client {
-	opt := &Options{
-		Timeout:       time.Second * 30,
-		UserAgent:     defaultUserAgent,
-		JsonMarshal:   gojson.Marshal,
-		JsonUnmarshal: gojson.Unmarshal,
-		//MaxConnsPerHost: fasthttp.DefaultMaxConnsPerHost,
+func New(opts ...ClientOptions) Client {
+	opt := &clientOptions{
+		timeout:       time.Second * 30,
+		userAgent:     defaultUserAgent,
+		jsonMarshal:   gojson.Marshal,
+		jsonUnmarshal: gojson.Unmarshal,
 	}
 	if len(opts) != 0 {
-		userOpt := opts[0]
-		if userOpt.Timeout.Milliseconds() != 0 {
-			opt.Timeout = userOpt.Timeout
-		}
-		if userOpt.Headers != nil {
-			opt.Headers = userOpt.Headers
-		}
-		if userOpt.UserAgent != "" {
-			opt.UserAgent = userOpt.UserAgent
-		}
-		if userOpt.JsonMarshal != nil {
-			opt.JsonMarshal = userOpt.JsonMarshal
-		}
-		if userOpt.JsonUnmarshal != nil {
-			opt.JsonUnmarshal = userOpt.JsonUnmarshal
-		}
-		if userOpt.InsecureSkipVerify {
-			opt.InsecureSkipVerify = userOpt.InsecureSkipVerify
-		}
-		if userOpt.MaxConnsPerHost != 0 {
-			opt.MaxConnsPerHost = userOpt.MaxConnsPerHost
+		for _, f := range opts {
+			f(opt)
 		}
 	}
 
@@ -121,27 +145,24 @@ func New(opts ...*Options) Client {
 	}
 	maxIdleConnDuration := time.Hour * 1
 	fastHttpClient := &fasthttp.Client{
-		Name:                          opt.UserAgent,
-		ReadTimeout:                   opt.Timeout,
-		WriteTimeout:                  opt.Timeout,
+		Name:                          opt.userAgent,
+		ReadTimeout:                   opt.timeout,
+		WriteTimeout:                  opt.timeout,
 		MaxIdleConnDuration:           maxIdleConnDuration,
 		NoDefaultUserAgentHeader:      true, // Don't send: User-Agent: fasthttp
 		DisableHeaderNamesNormalizing: true, // If you set the case on your headers correctly you can enable this
 		DisablePathNormalizing:        true,
 		Dial:                          tcpDialer.Dial,
-		MaxConnsPerHost:               opt.MaxConnsPerHost,
-	}
-
-	if opt.InsecureSkipVerify {
-		fastHttpClient.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+		MaxConnsPerHost:               opt.maxConnsPerHost,
+		TLSConfig:                     opt.tlsConfig,
 	}
 
 	c := &httpClient{
 		client:        fastHttpClient,
-		userAgent:     opt.UserAgent,
-		Headers:       opt.Headers,
-		jsonMarshal:   opt.JsonMarshal,
-		jsonUnmarshal: opt.JsonUnmarshal,
+		userAgent:     opt.userAgent,
+		Headers:       opt.headers,
+		jsonMarshal:   opt.jsonMarshal,
+		jsonUnmarshal: opt.jsonUnmarshal,
 	}
 
 	return c

@@ -54,13 +54,12 @@ type Response struct {
 }
 
 func main() {
-	client := reqx.New(&reqx.Options{
-		Timeout: time.Second * 10,
-		Headers: reqx.Headers{
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
-		},
-		//InsecureSkipVerify: true,
-	})
+		}),
+	)
 
 	//POST
 	result := &Response{}

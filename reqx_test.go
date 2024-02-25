@@ -28,13 +28,12 @@ func Test_Get(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := reqx.New(&reqx.Options{
-		Timeout: time.Second * 10,
-		Headers: reqx.Headers{
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
-		},
-		//InsecureSkipVerify: true,
-	})
+		}),
+	)
 
 	result := &Response{}
 	resp, err := client.Get(&reqx.Request{
@@ -78,13 +77,12 @@ func Test_PostBody(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := reqx.New(&reqx.Options{
-		Timeout: time.Second * 10,
-		Headers: reqx.Headers{
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
-		},
-		//InsecureSkipVerify: true,
-	})
+		}),
+	)
 
 	result := &Response{}
 	resp, err := client.Post(&reqx.Request{
@@ -115,13 +113,12 @@ func Test_PostUploadFiles(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := reqx.New(&reqx.Options{
-		Timeout: time.Second * 10,
-		Headers: reqx.Headers{
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
-		},
-		//InsecureSkipVerify: true,
-	})
+		}),
+	)
 
 	test1Bytes, err := os.ReadFile("example/demo.txt")
 	if err != nil {
@@ -166,13 +163,12 @@ func Test_PostUploadFiles(t *testing.T) {
 }
 
 func Test_PostServerNotFound(t *testing.T) {
-	client := reqx.New(&reqx.Options{
-		Timeout: time.Second * 10,
-		Headers: reqx.Headers{
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
-		},
-		//InsecureSkipVerify: true,
-	})
+		}),
+	)
 
 	result := &Response{}
 	resp, err := client.Get(&reqx.Request{
@@ -200,13 +196,12 @@ func Test_Put(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := reqx.New(&reqx.Options{
-		Timeout: time.Second * 10,
-		Headers: reqx.Headers{
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
-		},
-		//InsecureSkipVerify: true,
-	})
+		}),
+	)
 
 	result := &Response{}
 	resp, err := client.Put(&reqx.Request{
@@ -237,13 +232,12 @@ func Test_Patch(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := reqx.New(&reqx.Options{
-		Timeout: time.Second * 10,
-		Headers: reqx.Headers{
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
-		},
-		//InsecureSkipVerify: true,
-	})
+		}),
+	)
 
 	result := &Response{}
 	resp, err := client.Patch(&reqx.Request{
@@ -274,13 +268,12 @@ func Test_Delete(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := reqx.New(&reqx.Options{
-		Timeout: time.Second * 10,
-		Headers: reqx.Headers{
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
-		},
-		//InsecureSkipVerify: true,
-	})
+		}),
+	)
 
 	result := &Response{}
 	resp, err := client.Delete(&reqx.Request{
@@ -311,13 +304,12 @@ func Benchmark_ReqxRequests(b *testing.B) {
 	}))
 	defer ts.Close()
 
-	client := reqx.New(&reqx.Options{
-		Timeout: time.Second * 10,
-		Headers: reqx.Headers{
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
-		},
-		//InsecureSkipVerify: true,
-	})
+		}),
+	)
 
 	b.Run("GET", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
