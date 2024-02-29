@@ -54,7 +54,8 @@ type Response struct {
 }
 
 func main() {
-	client := reqx.New(
+	clientWithBaseURL := reqx.New(
+		reqx.WithBaseURL("https://httpbin.org"),
 		reqx.WithTimeout(10*time.Second),
 		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
@@ -63,7 +64,32 @@ func main() {
 
 	//POST
 	result := &Response{}
-	resp, err := client.Post(&reqx.Request{
+	resp, err := clientWithBaseURL.Post(&reqx.Request{
+		URL: "/post",
+		Data: &Data{
+			Name: "Reqx",
+		},
+		Headers: reqx.Headers{
+			"custom": "1",
+		},
+		Result: result,
+	})
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	println(resp.StatusCode)
+	println(result.Origin)
+
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
+			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+	)
+
+	//POST
+	result = &Response{}
+	resp, err = client.Post(&reqx.Request{
 		URL: "https://httpbin.org/post",
 		Data: &Data{
 			Name: "Reqx",
@@ -192,4 +218,5 @@ func main() {
 	println(resp.StatusCode)
 	println(result.Origin)
 }
+
 ```
