@@ -50,6 +50,7 @@ type Form struct {
 
 type clientOptions struct {
 	timeout         time.Duration
+	baseURL         string
 	userAgent       string
 	tlsConfig       *tls.Config
 	maxConnsPerHost int
@@ -59,6 +60,12 @@ type clientOptions struct {
 }
 
 type ClientOptions func(opts *clientOptions)
+
+func WithBaseURL(baseURL string) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.baseURL = baseURL
+	}
+}
 
 func WithTimeout(timeout time.Duration) ClientOptions {
 	return func(opts *clientOptions) {
@@ -120,6 +127,7 @@ type Client interface {
 
 type httpClient struct {
 	client        *fasthttp.Client
+	baseURL       string
 	userAgent     string
 	Headers       Headers
 	jsonMarshal   func(v interface{}) ([]byte, error)
@@ -159,6 +167,7 @@ func New(opts ...ClientOptions) Client {
 
 	c := &httpClient{
 		client:        fastHttpClient,
+		baseURL:       opt.baseURL,
 		userAgent:     opt.userAgent,
 		Headers:       opt.headers,
 		jsonMarshal:   opt.jsonMarshal,
@@ -218,8 +227,17 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 	}, nil
 }
 
+func (c *httpClient) getRequestURL(requestURL string) string {
+	if c.baseURL != "" {
+		return c.baseURL + requestURL
+	}
+	return requestURL
+}
+
 func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, request *Request, method string) error {
-	req.SetRequestURI(request.URL)
+	requestURL := c.getRequestURL(request.URL)
+
+	req.SetRequestURI(requestURL)
 	req.Header.SetMethod(method)
 
 	if c.Headers != nil {
