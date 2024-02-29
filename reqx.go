@@ -49,14 +49,17 @@ type Form struct {
 }
 
 type clientOptions struct {
-	timeout         time.Duration
-	baseURL         string
-	userAgent       string
-	tlsConfig       *tls.Config
-	maxConnsPerHost int
-	headers         Headers
-	jsonMarshal     func(v interface{}) ([]byte, error)
-	jsonUnmarshal   func(data []byte, v interface{}) error
+	timeout            time.Duration
+	baseURL            string
+	userAgent          string
+	tlsConfig          *tls.Config
+	maxConnsPerHost    int
+	headers            Headers
+	onBeforeRequest    OnBeforeRequest
+	onRequestCompleted OnRequestCompleted
+	onRequestError     OnRequestError
+	jsonMarshal        func(v interface{}) ([]byte, error)
+	jsonUnmarshal      func(data []byte, v interface{}) error
 }
 
 type ClientOptions func(opts *clientOptions)
@@ -97,6 +100,24 @@ func WithHeaders(headers Headers) ClientOptions {
 	}
 }
 
+func WithOnBeforeRequest(onBeforeRequest OnBeforeRequest) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.onBeforeRequest = onBeforeRequest
+	}
+}
+
+func WithOnRequestCompleted(onRequestCompleted OnRequestCompleted) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.onRequestCompleted = onRequestCompleted
+	}
+}
+
+func WithOnRequestError(onRequestError OnRequestError) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.onRequestError = onRequestError
+	}
+}
+
 func WithJsonMarshal(jsonMarshal func(v interface{}) ([]byte, error)) ClientOptions {
 	return func(opts *clientOptions) {
 		opts.jsonMarshal = jsonMarshal
@@ -117,6 +138,18 @@ func WithFileParams(files ...FileParam) *[]FileParam {
 
 type Headers map[string]string
 
+type RequestInfo struct {
+	*fasthttp.Request
+}
+
+type ResponseInfo struct {
+	*fasthttp.Response
+}
+
+type OnBeforeRequest func(req *RequestInfo)
+type OnRequestCompleted func(req *RequestInfo, resp *ResponseInfo)
+type OnRequestError func(req *RequestInfo, resp *ResponseInfo)
+
 type Client interface {
 	Get(request *Request) (*Response, error)
 	Post(request *Request) (*Response, error)
@@ -126,12 +159,15 @@ type Client interface {
 }
 
 type httpClient struct {
-	client        *fasthttp.Client
-	baseURL       string
-	userAgent     string
-	Headers       Headers
-	jsonMarshal   func(v interface{}) ([]byte, error)
-	jsonUnmarshal func(data []byte, v interface{}) error
+	client             *fasthttp.Client
+	baseURL            string
+	userAgent          string
+	headers            Headers
+	onBeforeRequest    OnBeforeRequest
+	onRequestCompleted OnRequestCompleted
+	onRequestError     OnRequestError
+	jsonMarshal        func(v interface{}) ([]byte, error)
+	jsonUnmarshal      func(data []byte, v interface{}) error
 }
 
 func New(opts ...ClientOptions) Client {
@@ -166,12 +202,15 @@ func New(opts ...ClientOptions) Client {
 	}
 
 	c := &httpClient{
-		client:        fastHttpClient,
-		baseURL:       opt.baseURL,
-		userAgent:     opt.userAgent,
-		Headers:       opt.headers,
-		jsonMarshal:   opt.jsonMarshal,
-		jsonUnmarshal: opt.jsonUnmarshal,
+		client:             fastHttpClient,
+		baseURL:            opt.baseURL,
+		userAgent:          opt.userAgent,
+		headers:            opt.headers,
+		jsonMarshal:        opt.jsonMarshal,
+		jsonUnmarshal:      opt.jsonUnmarshal,
+		onBeforeRequest:    opt.onBeforeRequest,
+		onRequestCompleted: opt.onRequestCompleted,
+		onRequestError:     opt.onRequestError,
 	}
 
 	return c
@@ -211,6 +250,12 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 		return nil, err
 	}
 
+	if c.onBeforeRequest != nil {
+		c.onBeforeRequest(&RequestInfo{
+			Request: req,
+		})
+	}
+
 	err = c.client.Do(req, resp)
 	if err != nil {
 		return &Response{
@@ -222,6 +267,31 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if c.onRequestCompleted != nil {
+		c.onRequestCompleted(
+			&RequestInfo{
+				Request: req,
+			},
+			&ResponseInfo{
+				Response: resp,
+			},
+		)
+	}
+
+	if c.isUnSuccess(resp.StatusCode()) {
+		if c.onRequestError != nil {
+			c.onRequestError(
+				&RequestInfo{
+					Request: req,
+				},
+				&ResponseInfo{
+					Response: resp,
+				},
+			)
+		}
+	}
+
 	return &Response{
 		StatusCode: resp.StatusCode(),
 	}, nil
@@ -240,8 +310,8 @@ func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, re
 	req.SetRequestURI(requestURL)
 	req.Header.SetMethod(method)
 
-	if c.Headers != nil {
-		for k, v := range c.Headers {
+	if c.headers != nil {
+		for k, v := range c.headers {
 			req.Header.Add(k, v)
 		}
 	}
@@ -296,7 +366,7 @@ func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, re
 }
 
 func (c *httpClient) initResponse(request *Request, _ *fasthttp.Request, resp *fasthttp.Response) error {
-	if !c.isSuccess(resp.StatusCode()) {
+	if c.isUnSuccess(resp.StatusCode()) {
 		if request.ErrorResult != nil {
 			err := c.initResult(request.ErrorResult, resp)
 			if err != nil {
@@ -334,6 +404,10 @@ func (c *httpClient) initResult(result interface{}, resp *fasthttp.Response) err
 		}
 	}
 	return nil
+}
+
+func (c *httpClient) isUnSuccess(statusCode int) bool {
+	return !c.isSuccess(statusCode)
 }
 
 func (c *httpClient) isSuccess(statusCode int) bool {

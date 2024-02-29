@@ -2,8 +2,8 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/dreamph/reqx"
-
 	"log"
 	"os"
 	"time"
@@ -23,6 +23,15 @@ func main() {
 		reqx.WithTimeout(10*time.Second),
 		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+		reqx.WithOnBeforeRequest(func(req *reqx.RequestInfo) {
+			fmt.Println(req.String())
+		}),
+		reqx.WithOnRequestCompleted(func(req *reqx.RequestInfo, resp *reqx.ResponseInfo) {
+			fmt.Println(resp.String())
+		}),
+		reqx.WithOnRequestError(func(req *reqx.RequestInfo, resp *reqx.ResponseInfo) {
+			fmt.Println(resp.String())
 		}),
 	)
 
