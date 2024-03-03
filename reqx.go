@@ -164,6 +164,8 @@ type Client interface {
 	Put(request *Request) (*Response, error)
 	Delete(request *Request) (*Response, error)
 	Patch(request *Request) (*Response, error)
+	Head(request *Request) (*Response, error)
+	Options(request *Request) (*Response, error)
 }
 
 type httpClient struct {
@@ -242,6 +244,14 @@ func (c *httpClient) Delete(request *Request) (*Response, error) {
 
 func (c *httpClient) Patch(request *Request) (*Response, error) {
 	return c.do(request, fasthttp.MethodPatch)
+}
+
+func (c *httpClient) Head(request *Request) (*Response, error) {
+	return c.do(request, fasthttp.MethodHead)
+}
+
+func (c *httpClient) Options(request *Request) (*Response, error) {
+	return c.do(request, fasthttp.MethodOptions)
 }
 
 func (c *httpClient) do(request *Request, method string) (*Response, error) {
