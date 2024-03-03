@@ -1,9 +1,9 @@
 package reqx
 
 import (
-	"bytes"
 	"crypto/tls"
 	gojson "github.com/goccy/go-json"
+	//"github.com/goccy/go-reflect"
 	"github.com/valyala/fasthttp"
 	"io"
 	"mime/multipart"
@@ -134,6 +134,14 @@ type FormData map[string]string
 
 func WithFileParams(files ...FileParam) *[]FileParam {
 	return &files
+}
+
+func WithFileParam(name string, fileName string, reader io.Reader) FileParam {
+	return FileParam{
+		Name:     name,
+		FileName: fileName,
+		Reader:   reader,
+	}
 }
 
 type Headers map[string]string
@@ -325,8 +333,17 @@ func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, re
 	if request.Data != nil {
 		form, ok := c.getFormBody(request.Data)
 		if ok && (form.FormData != nil || form.Files != nil) {
-			bodyBuffer := &bytes.Buffer{}
+			//bodyBuffer := bytes.NewBuffer(nil)
+			//bodyWriter := multipart.NewWriter(bodyBuffer)
+
+			//bodyBuffer := &bytes.Buffer{}
+			//bodyWriter := multipart.NewWriter(bodyBuffer)
+
+			bodyBuffer := getMultipartBufferPool()
+			defer putMultipartBufferPool(bodyBuffer)
+
 			bodyWriter := multipart.NewWriter(bodyBuffer)
+
 			defer func() {
 				_ = bodyWriter.Close()
 			}()
@@ -434,7 +451,7 @@ func writeFieldsData(bodyWriter *multipart.Writer, fields map[string]string) err
 		if err != nil {
 			return err
 		}
-		_, err = fieldWriter.Write([]byte(v))
+		_, err = fieldWriter.Write(toBytes(v))
 		if err != nil {
 			return err
 		}
