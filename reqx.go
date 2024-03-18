@@ -14,11 +14,12 @@ import (
 
 const (
 	HeaderAuthorization = "Authorization"
-	ContentType         = "Content-Type"
+	HeaderContentType   = "Content-Type"
 )
 
 var (
-	headerContentTypeJson = []byte("application/json")
+	headerContentTypeJson           = []byte("application/json")
+	headerContentTypeFormUrlEncoded = []byte("application/x-www-form-urlencoded")
 )
 
 const (
@@ -344,48 +345,54 @@ func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, re
 
 	if request.Data != nil {
 		form, ok := c.getFormBody(request.Data)
-		if ok && (form.FormData != nil || form.FormUrlEncoded != nil || form.Files != nil) {
-			//bodyBuffer := bytes.NewBuffer(nil)
-			//bodyWriter := multipart.NewWriter(bodyBuffer)
-
-			//bodyBuffer := &bytes.Buffer{}
-			//bodyWriter := multipart.NewWriter(bodyBuffer)
-
-			bodyBuffer := getMultipartBufferPool()
-			defer putMultipartBufferPool(bodyBuffer)
-
-			bodyWriter := multipart.NewWriter(bodyBuffer)
-
-			defer func() {
-				_ = bodyWriter.Close()
-			}()
-
-			if form.FormData != nil {
-				err := writeFieldsData(bodyWriter, form.FormData)
-				if err != nil {
-					return err
-				}
-			}
-
-			if form.Files != nil {
-				err := writeFilesData(bodyWriter, form.Files)
-				if err != nil {
-					return err
-				}
-			}
-
-			contentType := request.Headers[ContentType]
-			if contentType == "" {
-				contentType = bodyWriter.FormDataContentType()
-			}
-			req.Header.SetContentType(contentType)
-
+		if ok {
 			if form.FormData != nil || form.Files != nil {
-				req.SetBody(bodyBuffer.Bytes())
-			}
+				//bodyBuffer := bytes.NewBuffer(nil)
+				//bodyWriter := multipart.NewWriter(bodyBuffer)
 
-			if form.FormUrlEncoded != nil {
-				req.SetBodyString(form.FormUrlEncoded.Encode())
+				//bodyBuffer := &bytes.Buffer{}
+				//bodyWriter := multipart.NewWriter(bodyBuffer)
+
+				bodyBuffer := getMultipartBufferPool()
+				defer putMultipartBufferPool(bodyBuffer)
+
+				bodyWriter := multipart.NewWriter(bodyBuffer)
+
+				defer func() {
+					_ = bodyWriter.Close()
+				}()
+
+				if form.FormData != nil {
+					err := writeFieldsData(bodyWriter, form.FormData)
+					if err != nil {
+						return err
+					}
+				}
+
+				if form.Files != nil {
+					err := writeFilesData(bodyWriter, form.Files)
+					if err != nil {
+						return err
+					}
+				}
+
+				contentType := request.Headers[HeaderContentType]
+				if contentType == "" {
+					contentType = bodyWriter.FormDataContentType()
+				}
+				req.Header.SetContentType(contentType)
+				req.SetBody(bodyBuffer.Bytes())
+			} else if form.FormUrlEncoded != nil {
+				contentType := request.Headers[HeaderContentType]
+				if contentType != "" {
+					req.Header.SetContentType(contentType)
+				} else {
+					req.Header.SetContentTypeBytes(headerContentTypeFormUrlEncoded)
+				}
+
+				if form.FormUrlEncoded != nil {
+					req.SetBodyString(form.FormUrlEncoded.Encode())
+				}
 			}
 		} else {
 			req.Header.SetContentTypeBytes(headerContentTypeJson)

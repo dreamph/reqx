@@ -143,7 +143,7 @@ func Test_Post_FormUrlEncoded(t *testing.T) {
 			FormUrlEncoded: &form,
 		},
 		Headers: reqx.Headers{
-			reqx.ContentType: "application/x-www-form-urlencoded",
+			reqx.HeaderContentType: "application/x-www-form-urlencoded",
 		},
 		Result: result,
 	})
