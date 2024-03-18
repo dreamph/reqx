@@ -7,6 +7,7 @@ import (
 	"github.com/valyala/fasthttp"
 	"io"
 	"mime/multipart"
+	"net/url"
 	"reflect"
 	"time"
 )
@@ -44,8 +45,9 @@ type FileParam struct {
 }
 
 type Form struct {
-	FormData FormData
-	Files    *[]FileParam
+	FormData       FormData
+	FormUrlEncoded *url.Values
+	Files          *[]FileParam
 }
 
 type clientOptions struct {
@@ -254,7 +256,7 @@ func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, re
 
 	if request.Data != nil {
 		form, ok := c.getFormBody(request.Data)
-		if ok && (form.FormData != nil || form.Files != nil) {
+		if ok && (form.FormData != nil || form.FormUrlEncoded != nil || form.Files != nil) {
 			bodyBuffer := &bytes.Buffer{}
 			bodyWriter := multipart.NewWriter(bodyBuffer)
 			defer func() {
@@ -275,9 +277,19 @@ func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, re
 				}
 			}
 
-			contentType := bodyWriter.FormDataContentType()
+			contentType := request.Headers[ContentType]
+			if contentType == "" {
+				contentType = bodyWriter.FormDataContentType()
+			}
 			req.Header.SetContentType(contentType)
-			req.SetBody(bodyBuffer.Bytes())
+
+			if form.FormData != nil || form.Files != nil {
+				req.SetBody(bodyBuffer.Bytes())
+			}
+
+			if form.FormUrlEncoded != nil {
+				req.SetBodyString(form.FormUrlEncoded.Encode())
+			}
 		} else {
 			req.Header.SetContentTypeBytes(headerContentTypeJson)
 			dataBytes, err := c.jsonMarshal(request.Data)
@@ -363,6 +375,22 @@ func writeFieldsData(bodyWriter *multipart.Writer, fields map[string]string) err
 		_, err = fieldWriter.Write([]byte(v))
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func writeXFieldsData(bodyWriter *multipart.Writer, fields *url.Values) error {
+	for key, val := range *fields {
+		fieldWriter, err := bodyWriter.CreateFormField(key)
+		if err != nil {
+			return err
+		}
+		for _, v := range val {
+			_, err = fieldWriter.Write([]byte(v))
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
