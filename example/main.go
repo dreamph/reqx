@@ -2,8 +2,8 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/dreamph/reqx"
-
 	"log"
 	"os"
 	"time"
@@ -23,6 +23,15 @@ func main() {
 		reqx.WithTimeout(10*time.Second),
 		reqx.WithHeaders(reqx.Headers{
 			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+		reqx.WithOnBeforeRequest(func(req *reqx.RequestInfo) {
+			fmt.Println(req.String())
+		}),
+		reqx.WithOnRequestCompleted(func(req *reqx.RequestInfo, resp *reqx.ResponseInfo) {
+			fmt.Println(resp.String())
+		}),
+		reqx.WithOnRequestError(func(req *reqx.RequestInfo, resp *reqx.ResponseInfo) {
+			fmt.Println(resp.String())
 		}),
 	)
 
@@ -117,16 +126,8 @@ func main() {
 				"firstName": "reqx",
 			},
 			Files: reqx.WithFileParams(
-				reqx.FileParam{
-					Name:     "file1",
-					FileName: "test1.pdf",
-					Reader:   bytes.NewReader(test1Bytes),
-				},
-				reqx.FileParam{
-					Name:     "file2",
-					FileName: "test2.pdf",
-					Reader:   bytes.NewReader(test2Bytes),
-				},
+				reqx.WithFileParam("file1", "test1.pdf", bytes.NewReader(test1Bytes)),
+				reqx.WithFileParam("file2", "test2.pdf", bytes.NewReader(test2Bytes)),
 			),
 		},
 		Result: &resultUploadBytes,

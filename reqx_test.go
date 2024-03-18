@@ -29,6 +29,7 @@ type Response struct {
 func Test_Get(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx"}))
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
 
@@ -55,10 +56,10 @@ func Test_Get(t *testing.T) {
 	}
 
 	if resp.StatusCode != 200 {
-		t.Error("Post Error")
+		t.Error("Test_Get Error")
 	}
 	if result.Origin != "reqx" {
-		t.Error("Post Error")
+		t.Error("Test_Get Error")
 	}
 }
 
@@ -159,6 +160,58 @@ func Test_Post_FormUrlEncoded(t *testing.T) {
 	}
 }
 
+func Test_PostBody_Error(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write(ToJsonBytes(Response{Origin: "reqx"}))
+	}))
+	defer ts.Close()
+
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
+			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+		reqx.WithOnBeforeRequest(func(req *reqx.RequestInfo) {
+			//fmt.Println("====== WithOnBeforeRequest ======")
+			//fmt.Println(req.String())
+			//fmt.Println("====== WithOnBeforeRequest ======")
+		}),
+		reqx.WithOnRequestCompleted(func(req *reqx.RequestInfo, resp *reqx.ResponseInfo) {
+			//fmt.Println("====== WithOnRequestCompleted ======")
+			//fmt.Println(resp.StatusCode())
+			//fmt.Println(resp.String())
+			//fmt.Println("====== WithOnRequestCompleted ======")
+		}),
+		reqx.WithOnRequestError(func(req *reqx.RequestInfo, resp *reqx.ResponseInfo) {
+			//fmt.Println("====== WithOnRequestError ======")
+			//fmt.Println(resp.StatusCode())
+			//fmt.Println(resp.String())
+			//fmt.Println("====== WithOnRequestError ======")
+		}),
+	)
+
+	result := &Response{}
+	resp, err := client.Post(&reqx.Request{
+		URL: ts.URL,
+		Data: &Data{
+			Name: "Reqx",
+		},
+		Headers: reqx.Headers{
+			"custom": "1",
+		},
+		Result: result,
+	})
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Error("Post Error")
+	}
+}
+
 func Test_PostUploadFiles(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx"}))
@@ -188,16 +241,8 @@ func Test_PostUploadFiles(t *testing.T) {
 				"firstName": "reqx",
 			},
 			Files: reqx.WithFileParams(
-				reqx.FileParam{
-					Name:     "file1",
-					FileName: "test1.pdf",
-					Reader:   bytes.NewReader(test1Bytes),
-				},
-				reqx.FileParam{
-					Name:     "file2",
-					FileName: "test2.pdf",
-					Reader:   bytes.NewReader(test2Bytes),
-				},
+				reqx.WithFileParam("file1", "test1.pdf", bytes.NewReader(test1Bytes)),
+				reqx.WithFileParam("file2", "test2.pdf", bytes.NewReader(test2Bytes)),
 			),
 		},
 		Result: &result,
@@ -207,10 +252,10 @@ func Test_PostUploadFiles(t *testing.T) {
 	}
 
 	if resp.StatusCode != 200 {
-		t.Error("Post Error")
+		t.Error("Test_PostUploadFiles Error")
 	}
 	if result.Origin != "reqx" {
-		t.Error("Post Error")
+		t.Error("Test_PostUploadFiles Error")
 	}
 }
 
@@ -238,7 +283,7 @@ func Test_PostServerNotFound(t *testing.T) {
 	}
 
 	if resp.StatusCode != 404 {
-		t.Error("Post Error")
+		t.Error("Test_PostServerNotFound Error")
 	}
 }
 
@@ -271,10 +316,10 @@ func Test_Put(t *testing.T) {
 	}
 
 	if resp.StatusCode != 200 {
-		t.Error("Post Error")
+		t.Error("Test_Put Error")
 	}
 	if result.Origin != "reqx" {
-		t.Error("Post Error")
+		t.Error("Test_Put Error")
 	}
 }
 
@@ -307,10 +352,10 @@ func Test_Patch(t *testing.T) {
 	}
 
 	if resp.StatusCode != 200 {
-		t.Error("Post Error")
+		t.Error("Test_Patch Error")
 	}
 	if result.Origin != "reqx" {
-		t.Error("Post Error")
+		t.Error("Test_Patch Error")
 	}
 }
 
@@ -343,10 +388,10 @@ func Test_Delete(t *testing.T) {
 	}
 
 	if resp.StatusCode != 200 {
-		t.Error("Post Error")
+		t.Error("Test_Delete Error")
 	}
 	if result.Origin != "reqx" {
-		t.Error("Post Error")
+		t.Error("Test_Delete Error")
 	}
 }
 
@@ -383,6 +428,44 @@ func Benchmark_ReqxRequests(b *testing.B) {
 				},
 				Result: result,
 			})
+		}
+	})
+
+	b.Run("POST_UPLOAD", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			test1Bytes, err := os.ReadFile("example/demo.txt")
+			if err != nil {
+				log.Fatalf(err.Error())
+			}
+			test2Bytes, err := os.ReadFile("example/demo.txt")
+			if err != nil {
+				log.Fatalf(err.Error())
+			}
+			var resultUploadBytes []byte
+			_, _ = client.Post(&reqx.Request{
+				URL: ts.URL,
+				Data: &reqx.Form{
+					FormData: reqx.FormData{
+						"firstName": "reqx",
+					},
+					Files: reqx.WithFileParams(
+						reqx.FileParam{
+							Name:     "file1",
+							FileName: "test1.pdf",
+							Reader:   bytes.NewReader(test1Bytes),
+						},
+						reqx.FileParam{
+							Name:     "file2",
+							FileName: "test2.pdf",
+							Reader:   bytes.NewReader(test2Bytes),
+						},
+					),
+				},
+				Result: &resultUploadBytes,
+			})
+			if err != nil {
+				log.Fatalf(err.Error())
+			}
 		}
 	})
 

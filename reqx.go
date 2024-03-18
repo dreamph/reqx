@@ -1,9 +1,9 @@
 package reqx
 
 import (
-	"bytes"
 	"crypto/tls"
 	gojson "github.com/goccy/go-json"
+	//"github.com/goccy/go-reflect"
 	"github.com/valyala/fasthttp"
 	"io"
 	"mime/multipart"
@@ -51,14 +51,17 @@ type Form struct {
 }
 
 type clientOptions struct {
-	timeout         time.Duration
-	baseURL         string
-	userAgent       string
-	tlsConfig       *tls.Config
-	maxConnsPerHost int
-	headers         Headers
-	jsonMarshal     func(v interface{}) ([]byte, error)
-	jsonUnmarshal   func(data []byte, v interface{}) error
+	timeout            time.Duration
+	baseURL            string
+	userAgent          string
+	tlsConfig          *tls.Config
+	maxConnsPerHost    int
+	headers            Headers
+	onBeforeRequest    OnBeforeRequest
+	onRequestCompleted OnRequestCompleted
+	onRequestError     OnRequestError
+	jsonMarshal        func(v interface{}) ([]byte, error)
+	jsonUnmarshal      func(data []byte, v interface{}) error
 }
 
 type ClientOptions func(opts *clientOptions)
@@ -99,6 +102,24 @@ func WithHeaders(headers Headers) ClientOptions {
 	}
 }
 
+func WithOnBeforeRequest(onBeforeRequest OnBeforeRequest) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.onBeforeRequest = onBeforeRequest
+	}
+}
+
+func WithOnRequestCompleted(onRequestCompleted OnRequestCompleted) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.onRequestCompleted = onRequestCompleted
+	}
+}
+
+func WithOnRequestError(onRequestError OnRequestError) ClientOptions {
+	return func(opts *clientOptions) {
+		opts.onRequestError = onRequestError
+	}
+}
+
 func WithJsonMarshal(jsonMarshal func(v interface{}) ([]byte, error)) ClientOptions {
 	return func(opts *clientOptions) {
 		opts.jsonMarshal = jsonMarshal
@@ -117,7 +138,27 @@ func WithFileParams(files ...FileParam) *[]FileParam {
 	return &files
 }
 
+func WithFileParam(name string, fileName string, reader io.Reader) FileParam {
+	return FileParam{
+		Name:     name,
+		FileName: fileName,
+		Reader:   reader,
+	}
+}
+
 type Headers map[string]string
+
+type RequestInfo struct {
+	*fasthttp.Request
+}
+
+type ResponseInfo struct {
+	*fasthttp.Response
+}
+
+type OnBeforeRequest func(req *RequestInfo)
+type OnRequestCompleted func(req *RequestInfo, resp *ResponseInfo)
+type OnRequestError func(req *RequestInfo, resp *ResponseInfo)
 
 type Client interface {
 	Get(request *Request) (*Response, error)
@@ -125,15 +166,20 @@ type Client interface {
 	Put(request *Request) (*Response, error)
 	Delete(request *Request) (*Response, error)
 	Patch(request *Request) (*Response, error)
+	Head(request *Request) (*Response, error)
+	Options(request *Request) (*Response, error)
 }
 
 type httpClient struct {
-	client        *fasthttp.Client
-	baseURL       string
-	userAgent     string
-	Headers       Headers
-	jsonMarshal   func(v interface{}) ([]byte, error)
-	jsonUnmarshal func(data []byte, v interface{}) error
+	client             *fasthttp.Client
+	baseURL            string
+	userAgent          string
+	headers            Headers
+	onBeforeRequest    OnBeforeRequest
+	onRequestCompleted OnRequestCompleted
+	onRequestError     OnRequestError
+	jsonMarshal        func(v interface{}) ([]byte, error)
+	jsonUnmarshal      func(data []byte, v interface{}) error
 }
 
 func New(opts ...ClientOptions) Client {
@@ -168,12 +214,15 @@ func New(opts ...ClientOptions) Client {
 	}
 
 	c := &httpClient{
-		client:        fastHttpClient,
-		baseURL:       opt.baseURL,
-		userAgent:     opt.userAgent,
-		Headers:       opt.headers,
-		jsonMarshal:   opt.jsonMarshal,
-		jsonUnmarshal: opt.jsonUnmarshal,
+		client:             fastHttpClient,
+		baseURL:            opt.baseURL,
+		userAgent:          opt.userAgent,
+		headers:            opt.headers,
+		jsonMarshal:        opt.jsonMarshal,
+		jsonUnmarshal:      opt.jsonUnmarshal,
+		onBeforeRequest:    opt.onBeforeRequest,
+		onRequestCompleted: opt.onRequestCompleted,
+		onRequestError:     opt.onRequestError,
 	}
 
 	return c
@@ -199,6 +248,14 @@ func (c *httpClient) Patch(request *Request) (*Response, error) {
 	return c.do(request, fasthttp.MethodPatch)
 }
 
+func (c *httpClient) Head(request *Request) (*Response, error) {
+	return c.do(request, fasthttp.MethodHead)
+}
+
+func (c *httpClient) Options(request *Request) (*Response, error) {
+	return c.do(request, fasthttp.MethodOptions)
+}
+
 func (c *httpClient) do(request *Request, method string) (*Response, error) {
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
@@ -213,6 +270,12 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 		return nil, err
 	}
 
+	if c.onBeforeRequest != nil {
+		c.onBeforeRequest(&RequestInfo{
+			Request: req,
+		})
+	}
+
 	err = c.client.Do(req, resp)
 	if err != nil {
 		return &Response{
@@ -224,6 +287,31 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if c.onRequestCompleted != nil {
+		c.onRequestCompleted(
+			&RequestInfo{
+				Request: req,
+			},
+			&ResponseInfo{
+				Response: resp,
+			},
+		)
+	}
+
+	if c.isUnSuccess(resp.StatusCode()) {
+		if c.onRequestError != nil {
+			c.onRequestError(
+				&RequestInfo{
+					Request: req,
+				},
+				&ResponseInfo{
+					Response: resp,
+				},
+			)
+		}
+	}
+
 	return &Response{
 		StatusCode: resp.StatusCode(),
 	}, nil
@@ -242,8 +330,8 @@ func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, re
 	req.SetRequestURI(requestURL)
 	req.Header.SetMethod(method)
 
-	if c.Headers != nil {
-		for k, v := range c.Headers {
+	if c.headers != nil {
+		for k, v := range c.headers {
 			req.Header.Add(k, v)
 		}
 	}
@@ -257,8 +345,17 @@ func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, re
 	if request.Data != nil {
 		form, ok := c.getFormBody(request.Data)
 		if ok && (form.FormData != nil || form.FormUrlEncoded != nil || form.Files != nil) {
-			bodyBuffer := &bytes.Buffer{}
+			//bodyBuffer := bytes.NewBuffer(nil)
+			//bodyWriter := multipart.NewWriter(bodyBuffer)
+
+			//bodyBuffer := &bytes.Buffer{}
+			//bodyWriter := multipart.NewWriter(bodyBuffer)
+
+			bodyBuffer := getMultipartBufferPool()
+			defer putMultipartBufferPool(bodyBuffer)
+
 			bodyWriter := multipart.NewWriter(bodyBuffer)
+
 			defer func() {
 				_ = bodyWriter.Close()
 			}()
@@ -308,7 +405,7 @@ func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, re
 }
 
 func (c *httpClient) initResponse(request *Request, _ *fasthttp.Request, resp *fasthttp.Response) error {
-	if !c.isSuccess(resp.StatusCode()) {
+	if c.isUnSuccess(resp.StatusCode()) {
 		if request.ErrorResult != nil {
 			err := c.initResult(request.ErrorResult, resp)
 			if err != nil {
@@ -348,6 +445,10 @@ func (c *httpClient) initResult(result interface{}, resp *fasthttp.Response) err
 	return nil
 }
 
+func (c *httpClient) isUnSuccess(statusCode int) bool {
+	return !c.isSuccess(statusCode)
+}
+
 func (c *httpClient) isSuccess(statusCode int) bool {
 	return statusCode >= 200 && statusCode <= 299
 }
@@ -372,25 +473,9 @@ func writeFieldsData(bodyWriter *multipart.Writer, fields map[string]string) err
 		if err != nil {
 			return err
 		}
-		_, err = fieldWriter.Write([]byte(v))
+		_, err = fieldWriter.Write(toBytes(v))
 		if err != nil {
 			return err
-		}
-	}
-	return nil
-}
-
-func writeXFieldsData(bodyWriter *multipart.Writer, fields *url.Values) error {
-	for key, val := range *fields {
-		fieldWriter, err := bodyWriter.CreateFormField(key)
-		if err != nil {
-			return err
-		}
-		for _, v := range val {
-			_, err = fieldWriter.Write([]byte(v))
-			if err != nil {
-				return err
-			}
 		}
 	}
 	return nil
