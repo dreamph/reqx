@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
 	"time"
@@ -19,7 +20,10 @@ type Data struct {
 }
 
 type Response struct {
-	Origin string `json:"origin"`
+	Origin       string `json:"origin"`
+	GrantedType  string `json:"grantedType"`
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret"`
 }
 
 func Test_Get(t *testing.T) {
@@ -104,6 +108,54 @@ func Test_PostBody(t *testing.T) {
 		t.Error("Post Error")
 	}
 	if result.Origin != "reqx" {
+		t.Error("Post Error")
+	}
+}
+
+func Test_Post_FormUrlEncoded(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+
+		grantedType := r.PostFormValue("granted_type")
+		clientId := r.PostFormValue("client_id")
+		clientSecret := r.PostFormValue("client_secret")
+
+		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx", GrantedType: grantedType, ClientID: clientId, ClientSecret: clientSecret}))
+	}))
+	defer ts.Close()
+
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
+			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+	)
+
+	form := url.Values{}
+	form.Set("granted_type", "client_credentials")
+	form.Set("client_id", "1234")
+	form.Set("client_secret", "XYZ")
+
+	result := &Response{}
+	resp, err := client.Post(&reqx.Request{
+		URL: ts.URL,
+		Data: &reqx.Form{
+			FormUrlEncoded: &form,
+		},
+		Headers: reqx.Headers{
+			reqx.ContentType: "application/x-www-form-urlencoded",
+		},
+		Result: result,
+	})
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	if resp.StatusCode != 200 {
+		t.Error("Post Error")
+	}
+
+	if result.Origin != "reqx" || result.ClientID != "1234" || result.GrantedType != "client_credentials" || result.ClientSecret != "XYZ" {
 		t.Error("Post Error")
 	}
 }
