@@ -18,8 +18,11 @@ const (
 )
 
 var (
-	headerContentTypeJson           = []byte("application/json")
-	headerContentTypeFormUrlEncoded = []byte("application/x-www-form-urlencoded")
+	HeaderContentTypeJson      = "application/json"
+	HeaderContentTypeJsonBytes = []byte(HeaderContentTypeJson)
+
+	HeaderContentTypeFormUrlEncoded      = "application/x-www-form-urlencoded"
+	HeaderContentTypeFormUrlEncodedBytes = []byte(HeaderContentTypeFormUrlEncoded)
 )
 
 const (
@@ -46,9 +49,16 @@ type FileParam struct {
 }
 
 type Form struct {
-	FormData       FormData
-	FormUrlEncoded *url.Values
-	Files          *[]FileParam
+	FormData FormData
+	Files    *[]FileParam
+}
+
+type FormUrlEncoded struct {
+	Values *url.Values
+}
+
+type Raw struct {
+	Body []byte
 }
 
 type clientOptions struct {
@@ -325,7 +335,7 @@ func (c *httpClient) getRequestURL(requestURL string) string {
 	return requestURL
 }
 
-func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, request *Request, method string) error {
+func (c *httpClient) initRequest(req *fasthttp.Request, resp *fasthttp.Response, request *Request, method string) error {
 	requestURL := c.getRequestURL(request.URL)
 
 	req.SetRequestURI(requestURL)
@@ -343,70 +353,88 @@ func (c *httpClient) initRequest(req *fasthttp.Request, _ *fasthttp.Response, re
 		}
 	}
 
-	if request.Data != nil {
-		form, ok := c.getFormBody(request.Data)
-		if ok {
-			if form.FormData != nil || form.Files != nil {
-				//bodyBuffer := bytes.NewBuffer(nil)
-				//bodyWriter := multipart.NewWriter(bodyBuffer)
-
-				//bodyBuffer := &bytes.Buffer{}
-				//bodyWriter := multipart.NewWriter(bodyBuffer)
-
-				bodyBuffer := getMultipartBufferPool()
-				defer putMultipartBufferPool(bodyBuffer)
-
-				bodyWriter := multipart.NewWriter(bodyBuffer)
-
-				defer func() {
-					_ = bodyWriter.Close()
-				}()
-
-				if form.FormData != nil {
-					err := writeFieldsData(bodyWriter, form.FormData)
-					if err != nil {
-						return err
-					}
-				}
-
-				if form.Files != nil {
-					err := writeFilesData(bodyWriter, form.Files)
-					if err != nil {
-						return err
-					}
-				}
-
-				contentType := request.Headers[HeaderContentType]
-				if contentType == "" {
-					contentType = bodyWriter.FormDataContentType()
-				}
-				req.Header.SetContentType(contentType)
-				req.SetBody(bodyBuffer.Bytes())
-			} else if form.FormUrlEncoded != nil {
-				contentType := request.Headers[HeaderContentType]
-				if contentType != "" {
-					req.Header.SetContentType(contentType)
-				} else {
-					req.Header.SetContentTypeBytes(headerContentTypeFormUrlEncoded)
-				}
-
-				if form.FormUrlEncoded != nil {
-					req.SetBodyString(form.FormUrlEncoded.Encode())
-				}
-			}
-		} else {
-			req.Header.SetContentTypeBytes(headerContentTypeJson)
-			dataBytes, err := c.jsonMarshal(request.Data)
-			if err != nil {
-				return err
-			}
-			req.SetBodyRaw(dataBytes)
-		}
-	}
-
 	if request.Timeout > 0 {
 		req.SetTimeout(request.Timeout)
 	}
+
+	if request.Data != nil {
+		err := c.initContentTypeAndBodyRequest(req, resp, request, method)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *httpClient) initContentTypeAndBodyRequest(req *fasthttp.Request, _ *fasthttp.Response, request *Request, method string) error {
+	contentType := request.Headers[HeaderContentType]
+	rawBody, ok := c.getRawBody(request.Data)
+	if ok {
+		req.Header.SetContentType(contentType)
+		req.SetBody(rawBody.Body)
+		return nil
+	}
+
+	form, ok := c.getFormBody(request.Data)
+	if ok {
+		if form.FormData != nil || form.Files != nil {
+			//bodyBuffer := bytes.NewBuffer(nil)
+			//bodyWriter := multipart.NewWriter(bodyBuffer)
+
+			//bodyBuffer := &bytes.Buffer{}
+			//bodyWriter := multipart.NewWriter(bodyBuffer)
+
+			bodyBuffer := getMultipartBufferPool()
+			defer putMultipartBufferPool(bodyBuffer)
+
+			bodyWriter := multipart.NewWriter(bodyBuffer)
+
+			defer func() {
+				_ = bodyWriter.Close()
+			}()
+
+			if form.FormData != nil {
+				err := writeFieldsData(bodyWriter, form.FormData)
+				if err != nil {
+					return err
+				}
+			}
+
+			if form.Files != nil {
+				err := writeFilesData(bodyWriter, form.Files)
+				if err != nil {
+					return err
+				}
+			}
+
+			if contentType == "" {
+				req.Header.SetContentType(bodyWriter.FormDataContentType())
+			}
+
+			req.SetBody(bodyBuffer.Bytes())
+		}
+		return nil
+	}
+
+	formUrlEncoded, ok := c.getFormUrlEncodedBody(request.Data)
+	if ok {
+		if contentType == "" {
+			req.Header.SetContentTypeBytes(HeaderContentTypeFormUrlEncodedBytes)
+		}
+
+		if formUrlEncoded.Values != nil {
+			req.SetBodyString(formUrlEncoded.Values.Encode())
+		}
+		return nil
+	}
+
+	req.Header.SetContentTypeBytes(HeaderContentTypeJsonBytes)
+	dataBytes, err := c.jsonMarshal(request.Data)
+	if err != nil {
+		return err
+	}
+	req.SetBodyRaw(dataBytes)
 
 	return nil
 }
@@ -458,6 +486,34 @@ func (c *httpClient) isUnSuccess(statusCode int) bool {
 
 func (c *httpClient) isSuccess(statusCode int) bool {
 	return statusCode >= 200 && statusCode <= 299
+}
+
+func (c *httpClient) getRawBody(data interface{}) (*Raw, bool) {
+	form, ok := data.(Raw)
+	if ok {
+		return &form, true
+	}
+
+	formPtr, ok := data.(*Raw)
+	if ok {
+		return formPtr, true
+	}
+
+	return nil, false
+}
+
+func (c *httpClient) getFormUrlEncodedBody(data interface{}) (*FormUrlEncoded, bool) {
+	form, ok := data.(FormUrlEncoded)
+	if ok {
+		return &form, true
+	}
+
+	formPtr, ok := data.(*FormUrlEncoded)
+	if ok {
+		return formPtr, true
+	}
+
+	return nil, false
 }
 
 func (c *httpClient) getFormBody(data interface{}) (*Form, bool) {
