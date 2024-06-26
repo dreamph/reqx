@@ -2,6 +2,7 @@ package reqx_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/dreamph/reqx"
 	"github.com/goccy/go-json"
@@ -42,7 +43,8 @@ func Test_Get(t *testing.T) {
 
 	result := &Response{}
 	resp, err := client.Get(&reqx.Request{
-		URL: ts.URL,
+		Context: context.Background(),
+		URL:     ts.URL,
 		Data: &Data{
 			Name: "Reqx",
 		},
@@ -91,7 +93,8 @@ func Test_PostBody(t *testing.T) {
 
 	result := &Response{}
 	resp, err := client.Post(&reqx.Request{
-		URL: ts.URL,
+		Context: context.Background(),
+		URL:     ts.URL,
 		Data: &Data{
 			Name: "Reqx",
 		},
@@ -138,7 +141,8 @@ func Test_Post_FormUrlEncoded(t *testing.T) {
 
 	result := &Response{}
 	resp, err := client.Post(&reqx.Request{
-		URL: ts.URL,
+		Context: context.Background(),
+		URL:     ts.URL,
 		Data: &reqx.FormUrlEncoded{
 			Values: &form,
 		},
@@ -183,7 +187,8 @@ func Test_Post_Raw(t *testing.T) {
 
 	result := &Response{}
 	resp, err := client.Post(&reqx.Request{
-		URL: ts.URL,
+		Context: context.Background(),
+		URL:     ts.URL,
 		Data: &reqx.Raw{
 			Body: []byte(form.Encode()),
 		},
@@ -239,7 +244,8 @@ func Test_PostBody_Error(t *testing.T) {
 
 	result := &Response{}
 	resp, err := client.Post(&reqx.Request{
-		URL: ts.URL,
+		Context: context.Background(),
+		URL:     ts.URL,
 		Data: &Data{
 			Name: "Reqx",
 		},
@@ -280,7 +286,8 @@ func Test_PostUploadFiles(t *testing.T) {
 	}
 	result := &Response{}
 	resp, err := client.Post(&reqx.Request{
-		URL: ts.URL,
+		Context: context.Background(),
+		URL:     ts.URL,
 		Data: &reqx.Form{
 			FormData: reqx.FormData{
 				"firstName": "reqx",
@@ -314,7 +321,8 @@ func Test_PostServerNotFound(t *testing.T) {
 
 	result := &Response{}
 	resp, err := client.Get(&reqx.Request{
-		URL: "https://httpbin.org/post_xxx",
+		Context: context.Background(),
+		URL:     "https://httpbin.org/post_xxx",
 		Data: &Data{
 			Name: "Reqx",
 		},
@@ -347,7 +355,8 @@ func Test_Put(t *testing.T) {
 
 	result := &Response{}
 	resp, err := client.Put(&reqx.Request{
-		URL: ts.URL,
+		Context: context.Background(),
+		URL:     ts.URL,
 		Data: &Data{
 			Name: "Reqx",
 		},
@@ -383,7 +392,8 @@ func Test_Patch(t *testing.T) {
 
 	result := &Response{}
 	resp, err := client.Patch(&reqx.Request{
-		URL: ts.URL,
+		Context: context.Background(),
+		URL:     ts.URL,
 		Data: &Data{
 			Name: "Reqx",
 		},
@@ -419,7 +429,8 @@ func Test_Delete(t *testing.T) {
 
 	result := &Response{}
 	resp, err := client.Delete(&reqx.Request{
-		URL: ts.URL,
+		Context: context.Background(),
+		URL:     ts.URL,
 		Data: &Data{
 			Name: "Reqx",
 		},

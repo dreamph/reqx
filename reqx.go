@@ -1,6 +1,7 @@
 package reqx
 
 import (
+	"context"
 	"crypto/tls"
 	gojson "github.com/goccy/go-json"
 	//"github.com/goccy/go-reflect"
@@ -30,6 +31,7 @@ const (
 )
 
 type Request struct {
+	Context     context.Context
 	URL         string
 	Data        interface{}
 	Headers     Headers
@@ -161,10 +163,12 @@ type Headers map[string]string
 
 type RequestInfo struct {
 	*fasthttp.Request
+	Context context.Context
 }
 
 type ResponseInfo struct {
 	*fasthttp.Response
+	Context context.Context
 }
 
 type OnBeforeRequest func(req *RequestInfo)
@@ -268,6 +272,11 @@ func (c *httpClient) Options(request *Request) (*Response, error) {
 }
 
 func (c *httpClient) do(request *Request, method string) (*Response, error) {
+	ctx := request.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
 
@@ -284,6 +293,7 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 	if c.onBeforeRequest != nil {
 		c.onBeforeRequest(&RequestInfo{
 			Request: req,
+			Context: ctx,
 		})
 	}
 
@@ -303,6 +313,7 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 		c.onRequestCompleted(
 			&RequestInfo{
 				Request: req,
+				Context: ctx,
 			},
 			&ResponseInfo{
 				Response: resp,
@@ -315,6 +326,7 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 			c.onRequestError(
 				&RequestInfo{
 					Request: req,
+					Context: ctx,
 				},
 				&ResponseInfo{
 					Response: resp,
