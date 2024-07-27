@@ -1,5 +1,4 @@
 # reqx
-[![GoDoc](https://godoc.org/github.com/imroc/req?status.svg)](https://github.com/dreamph/reqx)
 
 Golang http client
 - Light weight
