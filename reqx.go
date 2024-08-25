@@ -405,21 +405,7 @@ func (c *httpClient) initContentTypeAndBodyRequest(req *fasthttp.Request, _ *fas
 	form, ok := c.getFormBody(request.Data)
 	if ok {
 		if form.FormData != nil || form.Files != nil {
-			//v1
-			//bodyBuffer := bytes.NewBuffer(nil)
-			//bodyWriter := multipart.NewWriter(bodyBuffer)
-			//v1
-
-			//v2
-			//bodyBuffer := &bytes.Buffer{}
-			//bodyWriter := multipart.NewWriter(bodyBuffer)
-			//v2
-
-			//v3
-			bodyBuffer := getMultipartBufferPool()
-			defer putMultipartBufferPool(bodyBuffer)
-			bodyWriter := multipart.NewWriter(bodyBuffer)
-			//v3
+			bodyWriter := multipart.NewWriter(req.BodyWriter())
 
 			if form.FormData != nil {
 				err := writeFieldsData(bodyWriter, form.FormData)
@@ -444,7 +430,7 @@ func (c *httpClient) initContentTypeAndBodyRequest(req *fasthttp.Request, _ *fas
 				req.Header.SetContentType(bodyWriter.FormDataContentType())
 			}
 
-			req.SetBody(bodyBuffer.Bytes())
+			//req.SetBody(bodyBuffer.Bytes())
 		}
 		return nil
 	}
@@ -582,7 +568,9 @@ func writeFilesData(bodyWriter *multipart.Writer, files *[]FileParam) error {
 		if err != nil {
 			return err
 		}
-		_, err = io.Copy(fileWriter, val.Reader)
+
+		buf := make([]byte, 256*1024)
+		_, err = io.CopyBuffer(fileWriter, val.Reader, buf)
 		if err != nil {
 			return err
 		}
