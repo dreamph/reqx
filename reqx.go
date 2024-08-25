@@ -3,14 +3,16 @@ package reqx
 import (
 	"context"
 	"crypto/tls"
-	gojson "github.com/goccy/go-json"
-	//"github.com/goccy/go-reflect"
-	"github.com/valyala/fasthttp"
+
 	"io"
 	"mime/multipart"
 	"net/url"
 	"reflect"
 	"time"
+
+	gojson "github.com/goccy/go-json"
+	//"github.com/goccy/go-reflect"
+	"github.com/valyala/fasthttp"
 )
 
 const (
@@ -63,85 +65,85 @@ type Raw struct {
 	Body []byte
 }
 
-type clientOptions struct {
-	timeout            time.Duration
-	baseURL            string
-	userAgent          string
-	tlsConfig          *tls.Config
-	maxConnsPerHost    int
-	headers            Headers
-	onBeforeRequest    OnBeforeRequest
-	onRequestCompleted OnRequestCompleted
-	onRequestError     OnRequestError
-	jsonMarshal        func(v interface{}) ([]byte, error)
-	jsonUnmarshal      func(data []byte, v interface{}) error
+type ClientOption struct {
+	Timeout            time.Duration
+	BaseURL            string
+	UserAgent          string
+	TlsConfig          *tls.Config
+	MaxConnsPerHost    int
+	Headers            Headers
+	OnBeforeRequest    OnBeforeRequest
+	OnRequestCompleted OnRequestCompleted
+	OnRequestError     OnRequestError
+	JsonMarshal        func(v interface{}) ([]byte, error)
+	JsonUnmarshal      func(data []byte, v interface{}) error
 }
 
-type ClientOptions func(opts *clientOptions)
+type ClientOptions func(opts *ClientOption)
 
 func WithBaseURL(baseURL string) ClientOptions {
-	return func(opts *clientOptions) {
-		opts.baseURL = baseURL
+	return func(opts *ClientOption) {
+		opts.BaseURL = baseURL
 	}
 }
 
 func WithTimeout(timeout time.Duration) ClientOptions {
-	return func(opts *clientOptions) {
-		opts.timeout = timeout
+	return func(opts *ClientOption) {
+		opts.Timeout = timeout
 	}
 }
 
 func WithUserAgent(userAgent string) ClientOptions {
-	return func(opts *clientOptions) {
-		opts.userAgent = userAgent
+	return func(opts *ClientOption) {
+		opts.UserAgent = userAgent
 	}
 }
 
 func WithTLSConfig(tlsConfig *tls.Config) ClientOptions {
-	return func(opts *clientOptions) {
-		opts.tlsConfig = tlsConfig
+	return func(opts *ClientOption) {
+		opts.TlsConfig = tlsConfig
 	}
 }
 
 func WithMaxConnsPerHost(maxConnsPerHost int) ClientOptions {
-	return func(opts *clientOptions) {
-		opts.maxConnsPerHost = maxConnsPerHost
+	return func(opts *ClientOption) {
+		opts.MaxConnsPerHost = maxConnsPerHost
 	}
 }
 
 func WithHeaders(headers Headers) ClientOptions {
-	return func(opts *clientOptions) {
-		opts.headers = headers
+	return func(opts *ClientOption) {
+		opts.Headers = headers
 	}
 }
 
 func WithOnBeforeRequest(onBeforeRequest OnBeforeRequest) ClientOptions {
-	return func(opts *clientOptions) {
-		opts.onBeforeRequest = onBeforeRequest
+	return func(opts *ClientOption) {
+		opts.OnBeforeRequest = onBeforeRequest
 	}
 }
 
 func WithOnRequestCompleted(onRequestCompleted OnRequestCompleted) ClientOptions {
-	return func(opts *clientOptions) {
-		opts.onRequestCompleted = onRequestCompleted
+	return func(opts *ClientOption) {
+		opts.OnRequestCompleted = onRequestCompleted
 	}
 }
 
 func WithOnRequestError(onRequestError OnRequestError) ClientOptions {
-	return func(opts *clientOptions) {
-		opts.onRequestError = onRequestError
+	return func(opts *ClientOption) {
+		opts.OnRequestError = onRequestError
 	}
 }
 
 func WithJsonMarshal(jsonMarshal func(v interface{}) ([]byte, error)) ClientOptions {
-	return func(opts *clientOptions) {
-		opts.jsonMarshal = jsonMarshal
+	return func(opts *ClientOption) {
+		opts.JsonMarshal = jsonMarshal
 	}
 }
 
 func WithJsonUnmarshal(jsonUnmarshal func(data []byte, v interface{}) error) ClientOptions {
-	return func(opts *clientOptions) {
-		opts.jsonUnmarshal = jsonUnmarshal
+	return func(opts *ClientOption) {
+		opts.JsonUnmarshal = jsonUnmarshal
 	}
 }
 
@@ -197,47 +199,59 @@ type httpClient struct {
 	jsonUnmarshal      func(data []byte, v interface{}) error
 }
 
-func New(opts ...ClientOptions) Client {
-	opt := &clientOptions{
-		timeout:       time.Second * 30,
-		userAgent:     defaultUserAgent,
-		jsonMarshal:   gojson.Marshal,
-		jsonUnmarshal: gojson.Unmarshal,
+func defaultClientOption() *ClientOption {
+	return &ClientOption{
+		Timeout:       time.Second * 30,
+		UserAgent:     defaultUserAgent,
+		JsonMarshal:   gojson.Marshal,
+		JsonUnmarshal: gojson.Unmarshal,
 	}
+}
+
+func New(opts ...ClientOptions) Client {
+	opt := defaultClientOption()
+
 	if len(opts) != 0 {
 		for _, f := range opts {
 			f(opt)
 		}
 	}
+	return newClient(opt)
+}
 
+func NewClient(opt *ClientOption) Client {
+	return newClient(opt)
+}
+
+func newClient(opt *ClientOption) Client {
 	tcpDialer := fasthttp.TCPDialer{
 		Concurrency:      4096,
 		DNSCacheDuration: time.Hour,
 	}
 	maxIdleConnDuration := time.Hour * 1
 	fastHttpClient := &fasthttp.Client{
-		Name:                          opt.userAgent,
-		ReadTimeout:                   opt.timeout,
-		WriteTimeout:                  opt.timeout,
+		Name:                          opt.UserAgent,
+		ReadTimeout:                   opt.Timeout,
+		WriteTimeout:                  opt.Timeout,
 		MaxIdleConnDuration:           maxIdleConnDuration,
 		NoDefaultUserAgentHeader:      true, // Don't send: User-Agent: fasthttp
 		DisableHeaderNamesNormalizing: true, // If you set the case on your headers correctly you can enable this
 		DisablePathNormalizing:        true,
 		Dial:                          tcpDialer.Dial,
-		MaxConnsPerHost:               opt.maxConnsPerHost,
-		TLSConfig:                     opt.tlsConfig,
+		MaxConnsPerHost:               opt.MaxConnsPerHost,
+		TLSConfig:                     opt.TlsConfig,
 	}
 
 	c := &httpClient{
 		client:             fastHttpClient,
-		baseURL:            opt.baseURL,
-		userAgent:          opt.userAgent,
-		headers:            opt.headers,
-		jsonMarshal:        opt.jsonMarshal,
-		jsonUnmarshal:      opt.jsonUnmarshal,
-		onBeforeRequest:    opt.onBeforeRequest,
-		onRequestCompleted: opt.onRequestCompleted,
-		onRequestError:     opt.onRequestError,
+		baseURL:            opt.BaseURL,
+		userAgent:          opt.UserAgent,
+		headers:            opt.Headers,
+		jsonMarshal:        opt.JsonMarshal,
+		jsonUnmarshal:      opt.JsonUnmarshal,
+		onBeforeRequest:    opt.OnBeforeRequest,
+		onRequestCompleted: opt.OnRequestCompleted,
+		onRequestError:     opt.OnRequestError,
 	}
 
 	return c
@@ -391,20 +405,21 @@ func (c *httpClient) initContentTypeAndBodyRequest(req *fasthttp.Request, _ *fas
 	form, ok := c.getFormBody(request.Data)
 	if ok {
 		if form.FormData != nil || form.Files != nil {
+			//v1
 			//bodyBuffer := bytes.NewBuffer(nil)
 			//bodyWriter := multipart.NewWriter(bodyBuffer)
+			//v1
 
+			//v2
 			//bodyBuffer := &bytes.Buffer{}
 			//bodyWriter := multipart.NewWriter(bodyBuffer)
+			//v2
 
+			//v3
 			bodyBuffer := getMultipartBufferPool()
 			defer putMultipartBufferPool(bodyBuffer)
-
 			bodyWriter := multipart.NewWriter(bodyBuffer)
-
-			defer func() {
-				_ = bodyWriter.Close()
-			}()
+			//v3
 
 			if form.FormData != nil {
 				err := writeFieldsData(bodyWriter, form.FormData)
@@ -418,6 +433,11 @@ func (c *httpClient) initContentTypeAndBodyRequest(req *fasthttp.Request, _ *fas
 				if err != nil {
 					return err
 				}
+			}
+
+			err := bodyWriter.Close()
+			if err != nil {
+				return err
 			}
 
 			if contentType == "" {
