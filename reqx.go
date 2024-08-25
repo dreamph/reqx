@@ -569,8 +569,14 @@ func writeFilesData(bodyWriter *multipart.Writer, files *[]FileParam) error {
 			return err
 		}
 
-		buf := make([]byte, 256*1024)
-		_, err = io.CopyBuffer(fileWriter, val.Reader, buf)
+		/*
+			buf := make([]byte, 256*1024)
+			_, err = io.CopyBuffer(fileWriter, val.Reader, buf)
+			if err != nil {
+				return err
+			}
+		*/
+		_, err = io.Copy(fileWriter, val.Reader)
 		if err != nil {
 			return err
 		}
