@@ -3,7 +3,6 @@ package reqx
 import (
 	"context"
 	"crypto/tls"
-
 	"io"
 	"mime/multipart"
 	"net/url"
@@ -568,14 +567,6 @@ func writeFilesData(bodyWriter *multipart.Writer, files *[]FileParam) error {
 		if err != nil {
 			return err
 		}
-
-		/*
-			buf := make([]byte, 256*1024)
-			_, err = io.CopyBuffer(fileWriter, val.Reader, buf)
-			if err != nil {
-				return err
-			}
-		*/
 		_, err = io.Copy(fileWriter, val.Reader)
 		if err != nil {
 			return err
