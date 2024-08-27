@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/url"
 	"reflect"
+	"sync"
 	"time"
 
 	gojson "github.com/goccy/go-json"
@@ -43,6 +44,7 @@ type Request struct {
 
 type Response struct {
 	StatusCode int
+	TotalTime  time.Duration
 }
 
 type FileParam struct {
@@ -169,7 +171,8 @@ type RequestInfo struct {
 
 type ResponseInfo struct {
 	*fasthttp.Response
-	Context context.Context
+	Context   context.Context
+	TotalTime time.Duration
 }
 
 type OnBeforeRequest func(req *RequestInfo)
@@ -285,6 +288,7 @@ func (c *httpClient) Options(request *Request) (*Response, error) {
 }
 
 func (c *httpClient) do(request *Request, method string) (*Response, error) {
+	start := time.Now()
 	ctx := request.Context
 	if ctx == nil {
 		ctx = context.Background()
@@ -314,9 +318,11 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 	if err != nil {
 		return &Response{
 			StatusCode: resp.StatusCode(),
+			TotalTime:  time.Since(start),
 		}, err
 	}
 
+	totalTime := time.Since(start)
 	err = c.initResponse(request, req, resp)
 	if err != nil {
 		return nil, err
@@ -329,7 +335,8 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 				Context: ctx,
 			},
 			&ResponseInfo{
-				Response: resp,
+				Response:  resp,
+				TotalTime: totalTime,
 			},
 		)
 	}
@@ -342,7 +349,8 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 					Context: ctx,
 				},
 				&ResponseInfo{
-					Response: resp,
+					Response:  resp,
+					TotalTime: totalTime,
 				},
 			)
 		}
@@ -350,6 +358,7 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 
 	return &Response{
 		StatusCode: resp.StatusCode(),
+		TotalTime:  totalTime,
 	}, nil
 }
 
@@ -567,7 +576,7 @@ func writeFilesData(bodyWriter *multipart.Writer, files *[]FileParam) error {
 		if err != nil {
 			return err
 		}
-		_, err = io.Copy(fileWriter, val.Reader)
+		_, err = doCopy(fileWriter, val.Reader)
 		if err != nil {
 			return err
 		}
@@ -580,4 +589,32 @@ func setPointerValue(ref interface{}, data interface{}) {
 	if val.Kind() == reflect.Ptr {
 		val.Elem().Set(reflect.ValueOf(data))
 	}
+}
+
+func doCopy(w io.Writer, r io.Reader) (int64, error) {
+	//return copyZeroAlloc(w, r)
+	return io.Copy(w, r)
+}
+
+func copyZeroAlloc(w io.Writer, r io.Reader) (int64, error) {
+	if wt, ok := r.(io.WriterTo); ok {
+		return wt.WriteTo(w)
+	}
+
+	if rt, ok := w.(io.ReaderFrom); ok {
+		return rt.ReadFrom(r)
+	}
+
+	copyBuf := copyBufPool.Get()
+	defer copyBufPool.Put(copyBuf)
+
+	buf := copyBuf.([]byte)
+
+	return io.CopyBuffer(w, r, buf)
+}
+
+var copyBufPool = sync.Pool{
+	New: func() any {
+		return make([]byte, 4096)
+	},
 }
