@@ -515,6 +515,16 @@ func (c *httpClient) isSuccess(statusCode int) bool {
 }
 
 func (c *httpClient) getRawBody(data interface{}) (*Raw, bool) {
+	dataBytes, ok := data.([]byte)
+	if ok {
+		return &Raw{Body: dataBytes}, true
+	}
+
+	dataString, ok := data.(string)
+	if ok {
+		return &Raw{Body: toBytes(dataString)}, true
+	}
+
 	form, ok := data.(Raw)
 	if ok {
 		return &form, true
