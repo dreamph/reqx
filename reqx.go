@@ -5,8 +5,10 @@ import (
 	"crypto/tls"
 	"io"
 	"mime/multipart"
+	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -33,13 +35,14 @@ const (
 )
 
 type Request struct {
-	Context     context.Context
-	URL         string
-	Data        interface{}
-	Headers     Headers
-	Result      interface{}
-	ErrorResult interface{}
-	Timeout     time.Duration
+	Context                context.Context
+	URL                    string
+	Data                   interface{}
+	Headers                Headers
+	Result                 interface{}
+	ErrorResult            interface{}
+	Timeout                time.Duration
+	ResultSuccessCheckFunc func(statusCode int) bool
 }
 
 type Response struct {
@@ -73,6 +76,7 @@ type ClientOption struct {
 	TlsConfig          *tls.Config
 	MaxConnsPerHost    int
 	Headers            Headers
+	MaxRedirectsCount  int
 	OnBeforeRequest    OnBeforeRequest
 	OnRequestCompleted OnRequestCompleted
 	OnRequestError     OnRequestError
@@ -148,6 +152,12 @@ func WithJsonUnmarshal(jsonUnmarshal func(data []byte, v interface{}) error) Cli
 	}
 }
 
+func WithMaxRedirectsCount(maxRedirectsCount int) ClientOptions {
+	return func(opts *ClientOption) {
+		opts.MaxRedirectsCount = maxRedirectsCount
+	}
+}
+
 type FormData map[string]string
 
 func WithFileParams(files ...FileParam) *[]FileParam {
@@ -194,6 +204,7 @@ type httpClient struct {
 	baseURL            string
 	userAgent          string
 	headers            Headers
+	maxRedirectsCount  int
 	onBeforeRequest    OnBeforeRequest
 	onRequestCompleted OnRequestCompleted
 	onRequestError     OnRequestError
@@ -249,6 +260,7 @@ func newClient(opt *ClientOption) Client {
 		baseURL:            opt.BaseURL,
 		userAgent:          opt.UserAgent,
 		headers:            opt.Headers,
+		maxRedirectsCount:  opt.MaxRedirectsCount,
 		jsonMarshal:        opt.JsonMarshal,
 		jsonUnmarshal:      opt.JsonUnmarshal,
 		onBeforeRequest:    opt.OnBeforeRequest,
@@ -314,7 +326,11 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 		})
 	}
 
-	err = c.client.Do(req, resp)
+	if c.maxRedirectsCount > 0 {
+		err = c.client.DoRedirects(req, resp, c.maxRedirectsCount)
+	} else {
+		err = c.client.Do(req, resp)
+	}
 	if err != nil {
 		return &Response{
 			StatusCode: resp.StatusCode(),
@@ -341,7 +357,7 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 		)
 	}
 
-	if c.isUnSuccess(resp.StatusCode()) {
+	if c.isUnResultSuccess(request, resp.StatusCode()) {
 		if c.onRequestError != nil {
 			c.onRequestError(
 				&RequestInfo{
@@ -405,7 +421,9 @@ func (c *httpClient) initContentTypeAndBodyRequest(req *fasthttp.Request, _ *fas
 	contentType := request.Headers[HeaderContentType]
 	rawBody, ok := c.getRawBody(request.Data)
 	if ok {
-		req.Header.SetContentType(contentType)
+		if contentType != "" {
+			req.Header.SetContentType(contentType)
+		}
 		req.SetBody(rawBody.Body)
 		return nil
 	}
@@ -466,7 +484,7 @@ func (c *httpClient) initContentTypeAndBodyRequest(req *fasthttp.Request, _ *fas
 }
 
 func (c *httpClient) initResponse(request *Request, _ *fasthttp.Request, resp *fasthttp.Response) error {
-	if c.isUnSuccess(resp.StatusCode()) {
+	if c.isUnResultSuccess(request, resp.StatusCode()) {
 		if request.ErrorResult != nil {
 			err := c.initResult(request.ErrorResult, resp)
 			if err != nil {
@@ -486,12 +504,34 @@ func (c *httpClient) initResponse(request *Request, _ *fasthttp.Request, resp *f
 	return nil
 }
 
+func (c *httpClient) isResultSuccess(request *Request, statusCode int) bool {
+	if request.ResultSuccessCheckFunc != nil {
+		return request.ResultSuccessCheckFunc(statusCode)
+	} else {
+		return c.isDefaultResultSuccess(statusCode)
+	}
+}
+
+func (c *httpClient) isUnResultSuccess(request *Request, statusCode int) bool {
+	return !c.isResultSuccess(request, statusCode)
+}
+
+func (c *httpClient) isDefaultResultSuccess(statusCode int) bool {
+	return statusCode >= 200 && statusCode <= 299
+}
+
 func (c *httpClient) initResult(result interface{}, resp *fasthttp.Response) error {
+	if resp.StatusCode() == http.StatusNoContent {
+		return nil
+	}
+
 	switch result.(type) {
 	case *string:
-		setPointerValue(result, resp.Body())
+		bodyCopy := c.copyBytes(resp.Body())
+		setPointerValue(result, bodyCopy)
 	case *[]byte:
-		setPointerValue(result, resp.Body())
+		bodyCopy := c.copyBytes(resp.Body())
+		setPointerValue(result, bodyCopy)
 	case string:
 	case []byte:
 	default:
@@ -506,12 +546,11 @@ func (c *httpClient) initResult(result interface{}, resp *fasthttp.Response) err
 	return nil
 }
 
-func (c *httpClient) isUnSuccess(statusCode int) bool {
-	return !c.isSuccess(statusCode)
-}
-
-func (c *httpClient) isSuccess(statusCode int) bool {
-	return statusCode >= 200 && statusCode <= 299
+func (c *httpClient) copyBytes(body []byte) []byte {
+	//bodyCopy := make([]byte, len(body))
+	//copy(bodyCopy, body)
+	//return bodyCopy
+	return slices.Clone(body)
 }
 
 func (c *httpClient) getRawBody(data interface{}) (*Raw, bool) {
