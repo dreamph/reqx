@@ -183,6 +183,7 @@ type ResponseInfo struct {
 	*fasthttp.Response
 	Context   context.Context
 	TotalTime time.Duration
+	Err       error
 }
 
 type OnBeforeRequest func(req *RequestInfo)
@@ -203,6 +204,7 @@ type httpClient struct {
 	client             *fasthttp.Client
 	baseURL            string
 	userAgent          string
+	timeout            time.Duration
 	headers            Headers
 	maxRedirectsCount  int
 	onBeforeRequest    OnBeforeRequest
@@ -259,6 +261,7 @@ func newClient(opt *ClientOption) Client {
 		client:             fastHttpClient,
 		baseURL:            opt.BaseURL,
 		userAgent:          opt.UserAgent,
+		timeout:            opt.Timeout,
 		headers:            opt.Headers,
 		maxRedirectsCount:  opt.MaxRedirectsCount,
 		jsonMarshal:        opt.JsonMarshal,
@@ -331,14 +334,43 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 	} else {
 		err = c.client.Do(req, resp)
 	}
+
+	totalTime := time.Since(start)
 	if err != nil {
+		if c.onRequestCompleted != nil {
+			c.onRequestCompleted(
+				&RequestInfo{
+					Request: req,
+					Context: ctx,
+				},
+				&ResponseInfo{
+					Response:  resp,
+					TotalTime: totalTime,
+					Err:       err,
+				},
+			)
+		}
+
+		if c.onRequestError != nil {
+			c.onRequestError(
+				&RequestInfo{
+					Request: req,
+					Context: ctx,
+				},
+				&ResponseInfo{
+					Response:  resp,
+					TotalTime: totalTime,
+					Err:       err,
+				},
+			)
+		}
+
 		return &Response{
 			StatusCode: resp.StatusCode(),
 			TotalTime:  time.Since(start),
 		}, err
 	}
 
-	totalTime := time.Since(start)
 	err = c.initResponse(request, req, resp)
 	if err != nil {
 		return nil, err
@@ -403,6 +435,7 @@ func (c *httpClient) initRequest(req *fasthttp.Request, resp *fasthttp.Response,
 		}
 	}
 
+	req.SetTimeout(c.timeout)
 	if request.Timeout > 0 {
 		req.SetTimeout(request.Timeout)
 	}
