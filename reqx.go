@@ -47,6 +47,7 @@ type Request struct {
 
 type Response struct {
 	StatusCode int
+	Headers    Headers
 	TotalTime  time.Duration
 }
 
@@ -368,6 +369,7 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 		return &Response{
 			StatusCode: resp.StatusCode(),
 			TotalTime:  time.Since(start),
+			Headers:    getResponseHeaders(resp),
 		}, err
 	}
 
@@ -407,7 +409,17 @@ func (c *httpClient) do(request *Request, method string) (*Response, error) {
 	return &Response{
 		StatusCode: resp.StatusCode(),
 		TotalTime:  totalTime,
+		Headers:    getResponseHeaders(resp),
 	}, nil
+}
+
+func getResponseHeaders(resp *fasthttp.Response) Headers {
+	headersMap := Headers{}
+
+	resp.Header.VisitAll(func(key, value []byte) {
+		headersMap[string(key)] = string(value)
+	})
+	return headersMap
 }
 
 func (c *httpClient) getRequestURL(requestURL string) string {

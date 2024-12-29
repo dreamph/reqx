@@ -45,14 +45,46 @@ func Test_Get(t *testing.T) {
 	resp, err := client.Get(&reqx.Request{
 		Context: context.Background(),
 		URL:     ts.URL,
-		Data: &Data{
-			Name: "Reqx",
-		},
 		Headers: reqx.Headers{
 			"custom": "1",
 		},
 		Result: result,
 	})
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	if resp.StatusCode != 200 {
+		t.Error("Test_Get Error")
+	}
+	if result.Origin != "reqx" {
+		t.Error("Test_Get Error")
+	}
+}
+
+func Test_Get_Api_Style(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx"}))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
+			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+	)
+
+	result := &Response{}
+	resp, err := reqx.Get().
+		Context(context.Background()).
+		URL(ts.URL).
+		Headers(reqx.Headers{
+			"custom": "1",
+		}).
+		Result(result).
+		Send(client)
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
@@ -115,6 +147,43 @@ func Test_PostBody(t *testing.T) {
 	}
 }
 
+func Test_PostBody_Api_Style(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx"}))
+	}))
+	defer ts.Close()
+
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
+			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+	)
+
+	result := &Response{}
+	resp, err := reqx.Post().
+		Context(context.Background()).
+		URL(ts.URL).
+		Data(&Data{
+			Name: "Reqx",
+		}).
+		Headers(reqx.Headers{
+			"custom": "1",
+		}).
+		Result(result).
+		Send(client)
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	if resp.StatusCode != 200 {
+		t.Error("Post Error")
+	}
+	if result.Origin != "reqx" {
+		t.Error("Post Error")
+	}
+}
+
 func Test_Post_FormUrlEncoded(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
@@ -148,6 +217,52 @@ func Test_Post_FormUrlEncoded(t *testing.T) {
 		},
 		Result: result,
 	})
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	if resp.StatusCode != 200 {
+		t.Error("Post Error")
+	}
+
+	if result.Origin != "reqx" || result.ClientID != "1234" || result.GrantedType != "client_credentials" || result.ClientSecret != "XYZ" {
+		t.Error("Post Error")
+	}
+}
+
+func Test_Post_FormUrlEncoded_Api_Style(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+
+		grantedType := r.PostFormValue("granted_type")
+		clientId := r.PostFormValue("client_id")
+		clientSecret := r.PostFormValue("client_secret")
+
+		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx", GrantedType: grantedType, ClientID: clientId, ClientSecret: clientSecret}))
+	}))
+	defer ts.Close()
+
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
+			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+	)
+
+	form := url.Values{}
+	form.Set("granted_type", "client_credentials")
+	form.Set("client_id", "1234")
+	form.Set("client_secret", "XYZ")
+
+	result := &Response{}
+	resp, err := reqx.Post().
+		Context(context.Background()).
+		URL(ts.URL).
+		Data(&reqx.FormUrlEncoded{
+			Values: &form,
+		}).
+		Result(result).
+		Send(client)
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
@@ -197,6 +312,55 @@ func Test_Post_Raw(t *testing.T) {
 		},
 		Result: result,
 	})
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	if resp.StatusCode != 200 {
+		t.Error("Post Error")
+	}
+
+	if result.Origin != "reqx" || result.ClientID != "1234" || result.GrantedType != "client_credentials" || result.ClientSecret != "XYZ" {
+		t.Error("Post Error")
+	}
+}
+
+func Test_Post_Raw_Api_Style(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+
+		grantedType := r.PostFormValue("granted_type")
+		clientId := r.PostFormValue("client_id")
+		clientSecret := r.PostFormValue("client_secret")
+
+		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx", GrantedType: grantedType, ClientID: clientId, ClientSecret: clientSecret}))
+	}))
+	defer ts.Close()
+
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
+			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+	)
+
+	form := url.Values{}
+	form.Set("granted_type", "client_credentials")
+	form.Set("client_id", "1234")
+	form.Set("client_secret", "XYZ")
+
+	result := &Response{}
+	resp, err := reqx.Post().
+		Context(context.Background()).
+		URL(ts.URL).
+		Data(&reqx.Raw{
+			Body: []byte(form.Encode()),
+		}).
+		Headers(reqx.Headers{
+			reqx.HeaderContentType: reqx.HeaderContentTypeFormUrlEncoded,
+		}).
+		Result(result).
+		Send(client)
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
@@ -299,6 +463,54 @@ func Test_PostUploadFiles(t *testing.T) {
 		},
 		Result: &result,
 	})
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	if resp.StatusCode != 200 {
+		t.Error("Test_PostUploadFiles Error")
+	}
+	if result.Origin != "reqx" {
+		t.Error("Test_PostUploadFiles Error")
+	}
+}
+
+func Test_PostUploadFiles_Api_Style(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx"}))
+	}))
+	defer ts.Close()
+
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
+			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+	)
+
+	test1Bytes, err := os.ReadFile("example/demo.txt")
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	test2Bytes, err := os.ReadFile("example/demo.txt")
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	result := &Response{}
+	resp, err := reqx.Post().
+		Context(context.Background()).
+		URL(ts.URL).
+		Data(&reqx.Form{
+			FormData: reqx.FormData{
+				"firstName": "reqx",
+			},
+			Files: reqx.WithFileParams(
+				reqx.WithFileParam("file1", "test1.pdf", bytes.NewReader(test1Bytes)),
+				reqx.WithFileParam("file2", "test2.pdf", bytes.NewReader(test2Bytes)),
+			),
+		}).
+		Result(result).
+		Send(client)
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
@@ -414,6 +626,43 @@ func Test_Patch(t *testing.T) {
 	}
 }
 
+func Test_Patch_Api_Style(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx"}))
+	}))
+	defer ts.Close()
+
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
+			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+	)
+
+	result := &Response{}
+	resp, err := reqx.Put().
+		Context(context.Background()).
+		URL(ts.URL).
+		Data(&Data{
+			Name: "Reqx",
+		}).
+		Headers(reqx.Headers{
+			"custom": "1",
+		}).
+		Result(result).
+		Send(client)
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	if resp.StatusCode != 200 {
+		t.Error("Test_Put Error")
+	}
+	if result.Origin != "reqx" {
+		t.Error("Test_Put Error")
+	}
+}
+
 func Test_Delete(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx"}))
@@ -439,6 +688,43 @@ func Test_Delete(t *testing.T) {
 		},
 		Result: result,
 	})
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	if resp.StatusCode != 200 {
+		t.Error("Test_Delete Error")
+	}
+	if result.Origin != "reqx" {
+		t.Error("Test_Delete Error")
+	}
+}
+
+func Test_Delete_Api_Style(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, ToJsonString(Response{Origin: "reqx"}))
+	}))
+	defer ts.Close()
+
+	client := reqx.New(
+		reqx.WithTimeout(10*time.Second),
+		reqx.WithHeaders(reqx.Headers{
+			reqx.HeaderAuthorization: "Bearer 123456",
+		}),
+	)
+
+	result := &Response{}
+	resp, err := reqx.Delete().
+		Context(context.Background()).
+		URL(ts.URL).
+		Data(&Data{
+			Name: "Reqx",
+		}).
+		Headers(reqx.Headers{
+			"custom": "1",
+		}).
+		Result(result).
+		Send(client)
 	if err != nil {
 		log.Fatalf(err.Error())
 	}

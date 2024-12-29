@@ -60,6 +60,22 @@ func main() {
 		}),
 	)
 
+	//Example Api Style
+	result = &Response{}
+	res, err := reqx.Post().
+		URL("https://httpbin.org/post").
+		Data(&Data{
+			Name: "Reqx",
+		}).
+		Headers(reqx.Headers{}).
+		Result(result).
+		Send(client)
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	println(res.Headers)
+	println(result.Origin)
+
 	//POST
 	result = &Response{}
 	resp, err = client.Post(&reqx.Request{
